@@ -12,17 +12,30 @@ android {
         applicationId = "com.larkliquid.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.0.0-iOS26-StoreRelease"
+        versionCode = 5
+        versionName = "5.0.0-EGPlayer-2026"
 
         vectorDrawables {
             useSupportLibrary = true
+        }
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+    }
+
+    // Optional CMake C++23 Machine-Code compilation when NDK/CMake is enabled on host
+    if (project.findProperty("enableNativeCmake") == "true") {
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
+                version = "3.22.1"
+            }
         }
     }
 
     buildTypes {
         release {
-            // Keep full code & shader symbols intact and sign with debug key so the Release APK installs immediately on any device
             isMinifyEnabled = false
             isShrinkResources = false
             signingConfig = signingConfigs.getByName("debug")
@@ -63,14 +76,14 @@ android {
 }
 
 dependencies {
-    // Core AndroidX & Lifecycle
+    // 2026 Modern AndroidX Core & Lifecycle
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
 
-    // Jetpack Compose BOM (2024.12.01 — Includes Compose UI 1.7.6 with rememberGraphicsLayer & GraphicsLayer.record)
+    // Jetpack Compose BOM (Hardware GraphicsLayer & 120Hz Spring Physics)
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
@@ -94,6 +107,6 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.coil-kt:coil-video:2.7.0")
 
-    // Coroutines
+    // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

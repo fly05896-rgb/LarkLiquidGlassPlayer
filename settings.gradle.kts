@@ -21,5 +21,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "LarkLiquidGlassPlayer"
+rootProject.name = "EGPlayer"
 include(":app")
