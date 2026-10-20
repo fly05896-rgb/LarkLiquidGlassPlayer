@@ -6,16 +6,18 @@ import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
 
 enum class AudioPreset(val titleAr: String, val subtitleEn: String, val bandGainsMb: IntArray) {
-    FLAT("قياسي متوازن", "iOS Natural Flat", intArrayOf(0, 0, 0, 0, 0)),
-    SPATIAL_CINEMA("سينمائي محيطي", "Spatial Audio 3D", intArrayOf(500, 250, -100, 350, 600)),
-    BASS_BOOST("تضخيم البيس", "Lark Super Bass", intArrayOf(850, 500, 0, 150, 300)),
-    VOCAL_CLARITY("نقاء الصوت البشري", "Crystal Dialogue", intArrayOf(-200, 200, 700, 550, 200)),
-    NIGHT_MODE("الوضع الليلي", "Late Night Soft", intArrayOf(-400, 100, 450, 200, -300))
+    FLAT("قياسي متوازن", "iOS 26 Natural Flat", intArrayOf(0, 0, 0, 0, 0)),
+    SPATIAL_CINEMA("سينمائي محيطي 3D", "Spatial Audio 3D", intArrayOf(550, 300, -50, 400, 650)),
+    BASS_BOOST("تضخيم البيس الفائق", "Lark Super Bass", intArrayOf(900, 550, 50, 200, 350)),
+    VOCAL_CLARITY("نقاء الصوت والحوار", "Crystal Dialogue", intArrayOf(-200, 250, 750, 600, 250)),
+    NIGHT_MODE("الوضع الليلي المريح", "Dolby Late Night", intArrayOf(-450, 100, 500, 250, -300)),
+    ELECTRONIC_POP("إلكترونيك وحيوية", "Dynamic Pop & EDM", intArrayOf(700, 350, -150, 450, 750)),
+    GAMING_SURROUND("ألعاب وتفاصيل محيطية", "360° Gaming Stage", intArrayOf(650, 200, 300, 650, 800))
 }
 
 /**
- * Hardware Audio Equalizer, Spatial Virtualizer & 200% Volume Booster Engine
- * Combines iOS 26 Spatial Audio profiles with Lark Video's 200% Volume Boost & Equalizer.
+ * Hardware Audio Equalizer, Spatial Virtualizer & 200% Volume Booster Engine.
+ * Combines iOS 26 Spatial Audio profiles with Lark Video's 200% Volume Boost & 5-Band Equalizer.
  */
 class AudioEqualizerEngine {
     private var loudnessEnhancer: LoudnessEnhancer? = null
@@ -55,7 +57,7 @@ class AudioEqualizerEngine {
      * Sets volume boost from 100% (1.0f) up to 200% (2.0f) using Android LoudnessEnhancer.
      */
     fun setVolumeBoostFactor(boostFactor: Float) {
-        val extraGainMb = ((boostFactor - 1.0f).coerceAtLeast(0f) * 1400f).toInt()
+        val extraGainMb = ((boostFactor - 1.0f).coerceAtLeast(0f) * 1500f).toInt()
         runCatching {
             loudnessEnhancer?.setTargetGain(extraGainMb)
         }
@@ -79,6 +81,20 @@ class AudioEqualizerEngine {
         }
         runCatching {
             virtualizer?.setStrength((spatialStrengthPercent.coerceIn(0f, 1f) * 1000).toInt().toShort())
+        }
+    }
+
+    fun setCustomBands(bandGainsMb: List<Int>) {
+        runCatching {
+            val eq = equalizer ?: return@runCatching
+            val bands = eq.numberOfBands.toInt()
+            val range = eq.bandLevelRange
+            val minEq = range[0].toInt()
+            val maxEq = range[1].toInt()
+            for (i in 0 until bands) {
+                val gain = bandGainsMb.getOrElse(i) { 0 }.coerceIn(minEq, maxEq).toShort()
+                eq.setBandLevel(i.toShort(), gain)
+            }
         }
     }
 

@@ -1,8 +1,9 @@
 package com.larkliquid.player.ui.player
 
 import android.app.Activity
-import android.media.AudioManager
 import android.content.Context
+import android.content.pm.ActivityInfo
+import android.media.AudioManager
 import android.view.TextureView
 import android.view.WindowManager
 import androidx.compose.animation.AnimatedVisibility
@@ -35,21 +36,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
-import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PictureInPictureAlt
-import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -89,6 +89,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.shapes.Capsule
+import com.larkliquid.player.data.LiquidGlassStyleConfig
 import com.larkliquid.player.data.VideoItem
 import com.larkliquid.player.player.AudioEqualizerEngine
 import com.larkliquid.player.player.AudioPreset
@@ -107,7 +108,8 @@ enum class VideoAspectMode(val label: String) {
 
 /**
  * 1:1 Replica of the iOS 26 Liquid Glass Video Player shown in the user's reference photos,
- * supercharged with Lark Video Player's audio equalizer, 200% boost, gestures, and speed controls.
+ * supercharged with Lark Video Player's audio equalizer, 200% boost, A-B Repeat, Sleep Timer,
+ * gestures, and speed controls.
  *
  * Uses `TextureView` inside `Modifier.layerBackdrop(videoBackdrop)` so that every live video frame
  * is optically refracted in real time by the circular center buttons, top pills, and bottom scrub bar.
@@ -115,6 +117,7 @@ enum class VideoAspectMode(val label: String) {
 @Composable
 fun Ios26VideoPlayerScreen(
     video: VideoItem,
+    glassConfig: LiquidGlassStyleConfig,
     onClose: () -> Unit,
     onEnterPip: () -> Unit
 ) {
@@ -140,6 +143,7 @@ fun Ios26VideoPlayerScreen(
     var durationMs by remember { mutableLongStateOf(video.durationMs.coerceAtLeast(1L)) }
     var controlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by remember { mutableStateOf(false) }
+    var isLandscape by remember { mutableStateOf(true) }
 
     // Skip seconds (15s like Image 1 or 10s like Image 2 — user can toggle anytime!)
     var skipSeconds by remember { mutableIntStateOf(15) }
@@ -147,6 +151,11 @@ fun Ios26VideoPlayerScreen(
     var isLongPress2xActive by remember { mutableStateOf(false) }
     var aspectMode by remember { mutableStateOf(VideoAspectMode.FIT) }
     var pinchZoomScale by remember { mutableFloatStateOf(1.0f) }
+
+    // A-B Repeat Loop state & Sleep Timer
+    var loopPointAMs by remember { mutableStateOf<Long?>(null) }
+    var loopPointBMs by remember { mutableStateOf<Long?>(null) }
+    var sleepTimerMinutes by remember { mutableIntStateOf(0) }
 
     // Volume (0.0..1.0 system + up to 2.0f with Lark 200% LoudnessEnhancer) & Brightness
     var volumeLevel by remember {
@@ -166,7 +175,6 @@ fun Ios26VideoPlayerScreen(
     var spatialStrength by remember { mutableFloatStateOf(0.75f) }
     var subtitlesEnabled by remember { mutableStateOf(true) }
     var selectedSubtitleLang by remember { mutableStateOf("العربية (Arabic CC)") }
-    var subtitleOffsetSec by remember { mutableFloatStateOf(0.0f) }
 
     // Gesture HUD indicator state
     var gestureHudText by remember { mutableStateOf<String?>(null) }
@@ -196,14 +204,31 @@ fun Ios26VideoPlayerScreen(
         }
     }
 
-    // Real-time playback progress ticker
-    LaunchedEffect(exoPlayer, isPlaying) {
+    // Real-time playback progress ticker & A-B Repeat Loop enforcement
+    LaunchedEffect(exoPlayer, isPlaying, loopPointAMs, loopPointBMs) {
         while (true) {
-            currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+            val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
+            currentPositionMs = pos
             if (exoPlayer.duration > 0) {
                 durationMs = exoPlayer.duration
             }
+            val a = loopPointAMs
+            val b = loopPointBMs
+            if (a != null && b != null && b > a && pos >= b) {
+                exoPlayer.seekTo(a)
+                currentPositionMs = a
+            }
             delay(100L)
+        }
+    }
+
+    // Sleep Timer Countdown
+    LaunchedEffect(sleepTimerMinutes) {
+        if (sleepTimerMinutes > 0) {
+            delay(sleepTimerMinutes * 60_000L)
+            exoPlayer.pause()
+            sleepTimerMinutes = 0
+            gestureHudText = "🌙 انتهى مؤقت النوم - تم إيقاف الفيديو"
         }
     }
 
@@ -215,10 +240,10 @@ fun Ios26VideoPlayerScreen(
         }
     }
 
-    // Clear temporary gesture HUD after 900ms
+    // Clear temporary gesture HUD after 950ms
     LaunchedEffect(gestureHudText) {
         if (gestureHudText != null) {
-            delay(900L)
+            delay(950L)
             gestureHudText = null
         }
     }
@@ -228,6 +253,9 @@ fun Ios26VideoPlayerScreen(
         drawRect(Color.Black)
         drawContent()
     }
+
+    val refMult = glassConfig.refractionMultiplier
+    val blurMult = glassConfig.blurMultiplier
 
     Box(
         modifier = Modifier
@@ -340,7 +368,7 @@ fun Ios26VideoPlayerScreen(
                         .padding(bottom = 96.dp, start = 24.dp, end = 24.dp)
                 ) {
                     Text(
-                        text = "♪ [iOS 26 Liquid Glass Spatial Audio • ${video.title.take(28)}] ♪",
+                        text = "♪ [iOS 26 Liquid Glass • ${video.title.take(32)}] ♪",
                         color = Color.White.copy(alpha = 0.92f),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold
@@ -362,8 +390,8 @@ fun Ios26VideoPlayerScreen(
             LiquidCapsulePill(
                 backdrop = videoBackdrop,
                 isInteractive = false,
-                refractionHeight = 18.dp,
-                refractionAmount = 36.dp,
+                refractionHeight = (18f * refMult).dp,
+                refractionAmount = (36f * refMult).dp,
                 surfaceTint = Color.White.copy(alpha = 0.14f)
             ) {
                 Text(
@@ -387,8 +415,8 @@ fun Ios26VideoPlayerScreen(
                     onClick = { isScreenLocked = false },
                     backdrop = videoBackdrop,
                     size = 52.dp,
-                    refractionHeight = 20.dp,
-                    refractionAmount = 44.dp
+                    refractionHeight = (20f * refMult).dp,
+                    refractionAmount = (44f * refMult).dp
                 ) {
                     Icon(
                         imageVector = Icons.Default.Lock,
@@ -414,7 +442,7 @@ fun Ios26VideoPlayerScreen(
                     .navigationBarsPadding()
                     .padding(horizontal = 22.dp, vertical = 16.dp)
             ) {
-                // ---------- A. TOP-LEFT CONTROLS: Close (X) Circle + PiP / Aspect / Lock Capsule Pill ----------
+                // ---------- A. TOP-LEFT CONTROLS: Close (X) Circle + PiP / Aspect / Rotate / Lock Capsule Pill ----------
                 Row(
                     modifier = Modifier.align(Alignment.TopStart),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -425,8 +453,8 @@ fun Ios26VideoPlayerScreen(
                         onClick = onClose,
                         backdrop = videoBackdrop,
                         size = 44.dp,
-                        refractionHeight = 18.dp,
-                        refractionAmount = 38.dp
+                        refractionHeight = (18f * refMult).dp,
+                        refractionAmount = (38f * refMult).dp
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
@@ -436,12 +464,12 @@ fun Ios26VideoPlayerScreen(
                         )
                     }
 
-                    // Multi-Icon Capsule Pill (PiP + Aspect Ratio Resize + Lock/AirPlay) — Exact match to Image 1
+                    // Multi-Icon Capsule Pill (PiP + Aspect Ratio Resize + Rotate + Lock) — Exact match to Image 1
                     LiquidCapsulePill(
                         backdrop = videoBackdrop,
                         modifier = Modifier.height(44.dp),
-                        refractionHeight = 18.dp,
-                        refractionAmount = 38.dp
+                        refractionHeight = (18f * refMult).dp,
+                        refractionAmount = (38f * refMult).dp
                     ) {
                         Icon(
                             imageVector = Icons.Default.PictureInPictureAlt,
@@ -451,7 +479,7 @@ fun Ios26VideoPlayerScreen(
                                 .size(20.dp)
                                 .clickable { onEnterPip() }
                         )
-                        Spacer(Modifier.width(18.dp))
+                        Spacer(Modifier.width(16.dp))
                         Icon(
                             imageVector = Icons.Default.AspectRatio,
                             contentDescription = "Resize Aspect Ratio",
@@ -465,7 +493,23 @@ fun Ios26VideoPlayerScreen(
                                     gestureHudText = "الأبعاد: ${aspectMode.label}"
                                 }
                         )
-                        Spacer(Modifier.width(18.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Icon(
+                            imageVector = Icons.Default.ScreenRotation,
+                            contentDescription = "Rotate Orientation",
+                            tint = Color.White,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable {
+                                    isLandscape = !isLandscape
+                                    activity?.requestedOrientation = if (isLandscape) {
+                                        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                    } else {
+                                        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                    }
+                                }
+                        )
+                        Spacer(Modifier.width(16.dp))
                         Icon(
                             imageVector = Icons.Default.LockOpen,
                             contentDescription = "Lock Controls",
@@ -484,6 +528,7 @@ fun Ios26VideoPlayerScreen(
                 LiquidVolumePill(
                     backdrop = videoBackdrop,
                     volume = if (isMuted) 0f else volumeLevel,
+                    refractionMultiplier = refMult,
                     onVolumeChange = { newVol ->
                         isMuted = false
                         volumeLevel = newVol.coerceIn(0f, 1f)
@@ -519,9 +564,9 @@ fun Ios26VideoPlayerScreen(
                         backdrop = videoBackdrop,
                         size = 66.dp,
                         liftHeightDp = 14.dp,
-                        refractionHeight = 24.dp,
-                        refractionAmount = 52.dp,
-                        blurRadius = 1.8.dp,
+                        refractionHeight = (24f * refMult).dp,
+                        refractionAmount = (52f * refMult).dp,
+                        blurRadius = (1.8f * blurMult).dp,
                         surfaceTint = Color.White.copy(alpha = 0.07f)
                     ) {
                         IosSkipCircularIcon(
@@ -542,9 +587,9 @@ fun Ios26VideoPlayerScreen(
                         backdrop = videoBackdrop,
                         size = 88.dp,
                         liftHeightDp = 16.dp,
-                        refractionHeight = 30.dp,
-                        refractionAmount = 64.dp,
-                        blurRadius = 1.5.dp,
+                        refractionHeight = (30f * refMult).dp,
+                        refractionAmount = (64f * refMult).dp,
+                        blurRadius = (1.5f * blurMult).dp,
                         surfaceTint = Color.White.copy(alpha = 0.08f)
                     ) {
                         IosPlayPauseIcon(isPlaying = isPlaying)
@@ -560,9 +605,9 @@ fun Ios26VideoPlayerScreen(
                         backdrop = videoBackdrop,
                         size = 66.dp,
                         liftHeightDp = 14.dp,
-                        refractionHeight = 24.dp,
-                        refractionAmount = 52.dp,
-                        blurRadius = 1.8.dp,
+                        refractionHeight = (24f * refMult).dp,
+                        refractionAmount = (52f * refMult).dp,
+                        blurRadius = (1.8f * blurMult).dp,
                         surfaceTint = Color.White.copy(alpha = 0.07f)
                     ) {
                         IosSkipCircularIcon(
@@ -572,14 +617,14 @@ fun Ios26VideoPlayerScreen(
                     }
                 }
 
-                // ---------- D. BOTTOM CONTROLS: Audio/Subtitles Pill (Right) + Full-Width Scrubber Capsule ----------
+                // ---------- D. BOTTOM CONTROLS: Audio/Subtitles/Loop Pill (Right) + Full-Width Scrubber Capsule ----------
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Right-aligned Audio Waveform + Subtitles Capsule Pill (Exact match to Image 1 above the timeline!)
+                    // Right-aligned Audio Waveform + Subtitles + A-B Loop + Sleep Timer Capsule Pill (Above timeline!)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
@@ -588,10 +633,67 @@ fun Ios26VideoPlayerScreen(
                         LiquidCapsulePill(
                             backdrop = videoBackdrop,
                             modifier = Modifier.height(42.dp),
-                            refractionHeight = 18.dp,
-                            refractionAmount = 38.dp,
+                            refractionHeight = (18f * refMult).dp,
+                            refractionAmount = (38f * refMult).dp,
                             surfaceTint = Color.White.copy(alpha = 0.10f)
                         ) {
+                            // A-B Repeat Loop button
+                            Icon(
+                                imageVector = Icons.Default.Repeat,
+                                contentDescription = "A-B Repeat Loop",
+                                tint = when {
+                                    loopPointBMs != null -> Color(0xFF00E676)
+                                    loopPointAMs != null -> Color(0xFFFF9100)
+                                    else -> Color.White
+                                },
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clickable {
+                                        when {
+                                            loopPointAMs == null -> {
+                                                loopPointAMs = currentPositionMs
+                                                gestureHudText = "🔁 تم تحديد نقطة البداية A (${VideoItem.formatTimestamp(currentPositionMs)})"
+                                            }
+                                            loopPointBMs == null -> {
+                                                if (currentPositionMs > (loopPointAMs ?: 0L) + 1000L) {
+                                                    loopPointBMs = currentPositionMs
+                                                    gestureHudText = "🔁 تكرار المقطع A ↔ B مفعل"
+                                                } else {
+                                                    loopPointAMs = null
+                                                    gestureHudText = "تم إلغاء التكرار A-B"
+                                                }
+                                            }
+                                            else -> {
+                                                loopPointAMs = null
+                                                loopPointBMs = null
+                                                gestureHudText = "تم إيقاف التكرار A-B"
+                                            }
+                                        }
+                                    }
+                            )
+                            Spacer(Modifier.width(16.dp))
+                            // Sleep Timer button
+                            Icon(
+                                imageVector = Icons.Default.Bedtime,
+                                contentDescription = "Sleep Timer",
+                                tint = if (sleepTimerMinutes > 0) Color(0xFF00E5FF) else Color.White,
+                                modifier = Modifier
+                                    .size(19.dp)
+                                    .clickable {
+                                        sleepTimerMinutes = when (sleepTimerMinutes) {
+                                            0 -> 15
+                                            15 -> 30
+                                            30 -> 60
+                                            else -> 0
+                                        }
+                                        gestureHudText = if (sleepTimerMinutes > 0) {
+                                            "🌙 مؤقت النوم: $sleepTimerMinutes دقيقة"
+                                        } else {
+                                            "🌙 تم إيقاف مؤقت النوم"
+                                        }
+                                    }
+                            )
+                            Spacer(Modifier.width(16.dp))
                             // Audio Track / Equalizer / 200% Boost button
                             Icon(
                                 imageVector = Icons.Default.GraphicEq,
@@ -604,7 +706,7 @@ fun Ios26VideoPlayerScreen(
                                         showSubtitlesSheet = false
                                     }
                             )
-                            Spacer(Modifier.width(18.dp))
+                            Spacer(Modifier.width(16.dp))
                             // Subtitles / CC & Speed button
                             Icon(
                                 imageVector = Icons.Default.Subtitles,
@@ -625,6 +727,7 @@ fun Ios26VideoPlayerScreen(
                         backdrop = videoBackdrop,
                         currentPositionMs = currentPositionMs,
                         durationMs = durationMs,
+                        refractionMultiplier = refMult,
                         onSeekTo = { targetMs ->
                             exoPlayer.seekTo(targetMs)
                             currentPositionMs = targetMs
@@ -645,17 +748,17 @@ fun Ios26VideoPlayerScreen(
         ) {
             Column(
                 modifier = Modifier
-                    .width(310.dp)
+                    .width(320.dp)
                     .ios26LiquidGlass(
                         backdrop = videoBackdrop,
                         shape = RoundedCornerShape(30.dp),
                         blurRadius = 6.dp,
-                        refractionHeight = 24.dp,
-                        refractionAmount = 48.dp,
+                        refractionHeight = (24f * refMult).dp,
+                        refractionAmount = (48f * refMult).dp,
                         surfaceTint = Color(0xFF0A1020).copy(alpha = 0.45f)
                     )
                     .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -710,7 +813,7 @@ fun Ios26VideoPlayerScreen(
                     }
                 }
 
-                // Skip Duration Toggle (15s vs 10s matching both uploaded screenshots!)
+                // Skip Duration Toggle (10s vs 15s vs 30s matching both uploaded screenshots!)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -722,7 +825,7 @@ fun Ios26VideoPlayerScreen(
                         fontSize = 12.sp
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(10, 15).forEach { sec ->
+                        listOf(10, 15, 30).forEach { sec ->
                             val active = skipSeconds == sec
                             Box(
                                 modifier = Modifier
@@ -743,7 +846,7 @@ fun Ios26VideoPlayerScreen(
                 }
 
                 // Equalizer Presets
-                AudioPreset.entries.forEach { preset ->
+                AudioPreset.entries.take(5).forEach { preset ->
                     val isSelected = activePreset == preset
                     Row(
                         modifier = Modifier
@@ -757,7 +860,7 @@ fun Ios26VideoPlayerScreen(
                                 activePreset = preset
                                 audioEngine.applyPreset(preset, bassStrength, spatialStrength)
                             }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -793,8 +896,8 @@ fun Ios26VideoPlayerScreen(
                         backdrop = videoBackdrop,
                         shape = RoundedCornerShape(30.dp),
                         blurRadius = 6.dp,
-                        refractionHeight = 24.dp,
-                        refractionAmount = 48.dp,
+                        refractionHeight = (24f * refMult).dp,
+                        refractionAmount = (48f * refMult).dp,
                         surfaceTint = Color(0xFF0A1020).copy(alpha = 0.45f)
                     )
                     .padding(18.dp),
@@ -897,6 +1000,7 @@ fun Ios26VideoPlayerScreen(
 private fun LiquidVolumePill(
     backdrop: Backdrop,
     volume: Float,
+    refractionMultiplier: Float,
     onVolumeChange: (Float) -> Unit,
     onToggleMute: () -> Unit,
     modifier: Modifier = Modifier
@@ -915,8 +1019,8 @@ private fun LiquidVolumePill(
                 shape = Capsule(),
                 physics = physics,
                 blurRadius = 3.dp,
-                refractionHeight = 18.dp,
-                refractionAmount = 38.dp,
+                refractionHeight = (18f * refractionMultiplier).dp,
+                refractionAmount = (38f * refractionMultiplier).dp,
                 surfaceTint = Color.White.copy(alpha = 0.09f)
             )
             .padding(horizontal = 14.dp),
@@ -974,6 +1078,7 @@ private fun Ios26TimelineScrubberPill(
     backdrop: Backdrop,
     currentPositionMs: Long,
     durationMs: Long,
+    refractionMultiplier: Float,
     onSeekTo: (Long) -> Unit
 ) {
     val physics = rememberLiquidInteractivePhysics(
@@ -1007,8 +1112,8 @@ private fun Ios26TimelineScrubberPill(
                 shape = Capsule(),
                 physics = physics,
                 blurRadius = 3.5.dp,
-                refractionHeight = 20.dp,
-                refractionAmount = 44.dp,
+                refractionHeight = (20f * refractionMultiplier).dp,
+                refractionAmount = (44f * refractionMultiplier).dp,
                 surfaceTint = Color.White.copy(alpha = 0.09f)
             )
             .padding(horizontal = 18.dp),

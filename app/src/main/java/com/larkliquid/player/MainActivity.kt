@@ -25,6 +25,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
+import com.larkliquid.player.data.LiquidGlassStyleConfig
 import com.larkliquid.player.data.VideoItem
 import com.larkliquid.player.data.VideoRepository
 import com.larkliquid.player.ui.home.HomeLibraryScreen
@@ -53,6 +54,8 @@ class MainActivity : ComponentActivity() {
                 val scope = rememberCoroutineScope()
                 val videos = remember { mutableStateListOf<VideoItem>() }
                 var selectedVideo by remember { mutableStateOf<VideoItem?>(null) }
+                var lastPlayedVideo by remember { mutableStateOf<VideoItem?>(null) }
+                var glassConfig by remember { mutableStateOf(LiquidGlassStyleConfig()) }
 
                 val permissionToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     Manifest.permission.READ_MEDIA_VIDEO
@@ -85,6 +88,7 @@ class MainActivity : ComponentActivity() {
                             dateAddedSec = System.currentTimeMillis() / 1000L
                         )
                         selectedVideo = extVideo
+                        lastPlayedVideo = extVideo
                         activeVideoForPip = extVideo
                     }
 
@@ -109,8 +113,12 @@ class MainActivity : ComponentActivity() {
                         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                         HomeLibraryScreen(
                             videos = videos,
+                            lastPlayedVideo = lastPlayedVideo,
+                            glassConfig = glassConfig,
+                            onUpdateGlassConfig = { glassConfig = it },
                             onPlayVideo = { item ->
                                 selectedVideo = item
+                                lastPlayedVideo = item
                                 activeVideoForPip = item
                             },
                             onPlayStreamUrl = { url ->
@@ -127,6 +135,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                 videos.add(0, streamItem)
                                 selectedVideo = streamItem
+                                lastPlayedVideo = streamItem
                                 activeVideoForPip = streamItem
                             },
                             onToggleFavorite = { videoId ->
@@ -148,6 +157,7 @@ class MainActivity : ComponentActivity() {
                         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                         Ios26VideoPlayerScreen(
                             video = currentVideo,
+                            glassConfig = glassConfig,
                             onClose = {
                                 selectedVideo = null
                                 activeVideoForPip = null

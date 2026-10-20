@@ -25,20 +25,31 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Pre-installed Android SDK Licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      - name: Setup Gradle 8.10.2 (No wrapper binary required)
+      - name: Normalize Project Directory Structure
+        run: |
+          if [ ! -f "settings.gradle.kts" ] && [ -f "LarkLiquidGlassPlayer/settings.gradle.kts" ]; then
+            echo "Detected nested LarkLiquidGlassPlayer folder, moving files to repository root..."
+            shopt -s dotglob
+            mv LarkLiquidGlassPlayer/* .
+            rmdir LarkLiquidGlassPlayer || true
+          fi
+          ls -la
+
+      - name: Setup Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
           cache-read-only: false
 
-      - name: Build Debug & Signed Release APKs
+      - name: Build Debug & Signed Store Release APKs
         run: |
           gradle assembleDebug assembleRelease --stacktrace
 
-      - name: Rename APKs for Easy Download
+      - name: Prepare Output APKs for Download
         run: |
           mkdir -p output-apks
           cp app/build/outputs/apk/debug/app-debug.apk output-apks/LarkLiquidGlass-iOS26-Debug.apk
@@ -58,13 +69,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: "Lark Liquid Glass Player (iOS 26 Edition) #${{ github.run_number }}"
+          name: "Lark Liquid Glass Player (iOS 26 Production Release) #${{ github.run_number }}"
           body: |
-            ### 💧 Lark Liquid Glass Video Player — iOS 26 Edition
-            - **Real SDF Optical Lens Refraction & Chromatic Dispersion** powered by `io.github.kyant0:backdrop:2.0.1`, `io.github.kyant0:capsule:2.1.2`, and custom Android 13+ AGSL `RuntimeShader`.
+            ### 💧 Lark Liquid Glass Video Player — iOS 26 Store Production Release
+            - **Real SDF Optical Lens Refraction & Chromatic Dispersion** powered by hardware `GraphicsLayer` and custom Android 13+ AGSL `RuntimeShader`.
             - **Interactive Fluid Droplet Physics**: Buttons lift upward (`translationY`), expand with spring physics, and smoothly follow your finger (`tanh` magnetic drag).
-            - **Main Library Refractive Scrolling**: Video thumbnails refract through the floating top search bar, category pills, and bottom navigation bar as you scroll.
-            - **Hardware-Accelerated Media3 (ExoPlayer) + 200% Volume Booster & Spatial 3D Equalizer**.
+            - **Main Library Refractive Scrolling**: Video thumbnails refract through the floating top search bar, category pills, mini-player, and bottom navigation bar as you scroll.
+            - **Hardware-Accelerated Media3 (ExoPlayer) + 200% Volume Booster, 5-Band Equalizer, A-B Repeat, Sleep Timer & Private Vault**.
           files: |
             output-apks/LarkLiquidGlass-iOS26-Release.apk
             output-apks/LarkLiquidGlass-iOS26-Debug.apk

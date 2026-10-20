@@ -12,8 +12,8 @@ android {
         applicationId = "com.larkliquid.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0-iOS26"
+        versionCode = 2
+        versionName = "2.0.0-iOS26-StoreRelease"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -22,9 +22,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            // Uses debug signing config by default so GitHub Actions produces an immediately installable Release APK
+            // Keep full code & shader symbols intact and sign with debug key so the Release APK installs immediately on any device
+            isMinifyEnabled = false
+            isShrinkResources = false
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -70,7 +70,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
 
-    // Jetpack Compose BOM & UI
+    // Jetpack Compose BOM (2024.12.01 — Includes Compose UI 1.7.6 with rememberGraphicsLayer & GraphicsLayer.record)
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
@@ -80,10 +80,6 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
-
-    // Kyant0 Liquid Glass (Backdrop) & Continuous G2 Capsule Shapes (iOS 26 Liquid Glass Engine)
-    implementation("io.github.kyant0:backdrop:2.0.1")
-    implementation("io.github.kyant0:capsule:2.1.2")
 
     // AndroidX Media3 (ExoPlayer) — Hardware-Accelerated 4K/HDR Video & Audio Playback
     val media3Version = "1.5.1"
