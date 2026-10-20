@@ -4,7 +4,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +37,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.OfflinePin
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
@@ -64,15 +67,17 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.shapes.Capsule
+import com.larkliquid.player.R
 import com.larkliquid.player.data.LiquidGlassStyleConfig
 import com.larkliquid.player.data.SortOption
 import com.larkliquid.player.data.VideoFolder
@@ -93,9 +98,8 @@ enum class HomeTab(val labelAr: String, val labelEn: String) {
 
 /**
  * Lark Video Main Library Screen with Real-Time iOS 26 Liquid Glass Scroll Refraction.
- * When scrolling through videos ("لما اقلب فيديوهات يظهر انكسار في القائمة الرئيسية"),
- * the video cards pass underneath the floating Liquid Glass Top Bar, Category Filter Pills,
- * Mini-Player Bar, and Bottom Navigation Bar, creating live SDF optical lens refraction & chromatic dispersion!
+ * Features photographic video thumbnails (`posterResId`) so scrolling the list creates vivid
+ * optical lens refraction across the floating Top Bar, Category Pills, Mini-Player, and Bottom Nav Bar!
  */
 @Composable
 fun HomeLibraryScreen(
@@ -118,7 +122,6 @@ fun HomeLibraryScreen(
     val listState = rememberLazyListState()
     var scrollVelocity by remember { mutableFloatStateOf(0f) }
 
-    // Track real-time scroll velocity to drive the AGSL Liquid Wave Refraction Shader
     LaunchedEffect(listState) {
         var lastOffset = 0
         var lastIndex = 0
@@ -131,7 +134,7 @@ fun HomeLibraryScreen(
             }
     }
 
-    val filterChips = listOf("الكل • All", "4K HDR", "1080p FHD", "أفلام طويلة", "مقاطع قصيرة", "Spatial 3D")
+    val filterChips = listOf("الكل • All", "بدون إنترنت • Offline", "4K HDR", "1080p FHD", "Spatial 3D")
 
     val filteredVideos by remember(videos, selectedTab, searchQuery, selectedFilterIndex, sortOption) {
         derivedStateOf {
@@ -147,11 +150,10 @@ fun HomeLibraryScreen(
                         item.title.contains(searchQuery, ignoreCase = true) ||
                         item.folderName.contains(searchQuery, ignoreCase = true)
                 val matchesChip = when (selectedFilterIndex) {
-                    1 -> item.resolutionBadge.contains("4K")
-                    2 -> item.resolutionBadge.contains("1080p")
-                    3 -> item.durationMs >= 300_000L
-                    4 -> item.durationMs < 300_000L
-                    5 -> item.folderName.contains("Spatial", ignoreCase = true) || item.isFavorite
+                    1 -> item.isOfflineBuiltIn
+                    2 -> item.resolutionBadge.contains("4K")
+                    3 -> item.resolutionBadge.contains("1080p")
+                    4 -> item.isFavorite
                     else -> true
                 }
                 matchesTab && matchesSearch && matchesChip
@@ -173,7 +175,6 @@ fun HomeLibraryScreen(
         }
     }
 
-    // Main Backdrop layer that captures the scrolling video list for real-time optical refraction
     val mainMenuBackdrop = rememberLayerBackdrop {
         drawRect(Color(0xFF060911))
         drawContent()
@@ -190,25 +191,24 @@ fun HomeLibraryScreen(
                 .fillMaxSize()
                 .layerBackdrop(mainMenuBackdrop)
         ) {
-            // Dynamic glowing ambient background orbs so refraction is vivid everywhere
             Canvas(modifier = Modifier.fillMaxSize()) {
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(glassConfig.tintColorHex).copy(alpha = 0.30f), Color.Transparent),
+                        colors = listOf(Color(glassConfig.tintColorHex).copy(alpha = 0.32f), Color.Transparent),
                         center = Offset(size.width * 0.85f, size.height * 0.18f),
                         radius = size.minDimension * 0.72f
                     )
                 )
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFF7C4DFF).copy(alpha = 0.24f), Color.Transparent),
+                        colors = listOf(Color(0xFF7C4DFF).copy(alpha = 0.25f), Color.Transparent),
                         center = Offset(size.width * 0.15f, size.height * 0.55f),
                         radius = size.minDimension * 0.65f
                     )
                 )
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFF00E5FF).copy(alpha = 0.22f), Color.Transparent),
+                        colors = listOf(Color(0xFF00E5FF).copy(alpha = 0.24f), Color.Transparent),
                         center = Offset(size.width * 0.75f, size.height * 0.88f),
                         radius = size.minDimension * 0.6f
                     )
@@ -218,19 +218,18 @@ fun HomeLibraryScreen(
             LazyColumn(
                 state = listState,
                 contentPadding = PaddingValues(
-                    top = 188.dp,
-                    bottom = if (lastPlayedVideo != null) 190.dp else 124.dp,
+                    top = 192.dp,
+                    bottom = if (lastPlayedVideo != null) 196.dp else 128.dp,
                     start = 16.dp,
                     end = 16.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                // Top Library Statistics Banner (Refracts when scrolled under top bar!)
                 item {
                     LibraryStatsBanner(
                         totalCount = videos.size,
-                        uhdCount = videos.count { it.resolutionBadge.contains("4K") },
+                        offlineCount = videos.count { it.isOfflineBuiltIn },
                         sortLabel = sortOption.labelAr
                     )
                 }
@@ -250,12 +249,11 @@ fun HomeLibraryScreen(
                     HomeTab.GLASS_STUDIO -> {
                         item {
                             LiquidGlassStudioPanel(
-                                backdrop = mainMenuBackdrop,
                                 config = glassConfig,
                                 onUpdateConfig = onUpdateGlassConfig
                             )
                         }
-                        items(filteredVideos.take(4), key = { it.id }) { video ->
+                        items(filteredVideos, key = { it.id }) { video ->
                             VideoThumbnailCard(
                                 video = video,
                                 onClick = { onPlayVideo(video) },
@@ -287,7 +285,6 @@ fun HomeLibraryScreen(
                 .align(Alignment.TopCenter),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Top Refractive Glass Bar (Search + Stream URL + Sort)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -297,25 +294,26 @@ fun HomeLibraryScreen(
                     backdrop = mainMenuBackdrop,
                     modifier = Modifier
                         .weight(1f)
-                        .height(52.dp),
+                        .height(54.dp),
                     refractionHeight = (22f * glassConfig.refractionMultiplier).dp,
                     refractionAmount = (44f * glassConfig.refractionMultiplier).dp,
                     blurRadius = (4f * glassConfig.blurMultiplier).dp,
                     scrollVelocity = scrollVelocity,
                     surfaceTint = Color.White.copy(alpha = 0.08f)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(20.dp)
+                    Image(
+                        painter = painterResource(id = R.drawable.app_logo_ios26),
+                        contentDescription = "iOS 26 Logo",
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(RoundedCornerShape(8.dp))
                     )
                     Spacer(Modifier.width(10.dp))
                     Box(modifier = Modifier.weight(1f)) {
                         if (searchQuery.isEmpty()) {
                             Text(
                                 text = "ابحث في Lark Liquid Glass...",
-                                color = Color.White.copy(alpha = 0.55f),
+                                color = Color.White.copy(alpha = 0.60f),
                                 fontSize = 14.sp
                             )
                         }
@@ -332,9 +330,14 @@ fun HomeLibraryScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = Color.White.copy(alpha = 0.80f),
+                        modifier = Modifier.size(19.dp)
+                    )
                 }
 
-                // Play Network Stream URL Button (Liquid Glass Circle)
                 LiquidCircleButton(
                     onClick = { showStreamDialog = true },
                     backdrop = mainMenuBackdrop,
@@ -350,7 +353,6 @@ fun HomeLibraryScreen(
                     )
                 }
 
-                // Cycle Sort Option Button (Liquid Glass Circle)
                 LiquidCircleButton(
                     onClick = {
                         val nextIdx = (sortOption.ordinal + 1) % SortOption.entries.size
@@ -370,7 +372,6 @@ fun HomeLibraryScreen(
                 }
             }
 
-            // Refractive Category Filter Chips Row
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -413,31 +414,25 @@ fun HomeLibraryScreen(
                     onClick = { onPlayVideo(lastPlayedVideo) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp),
+                        .height(58.dp),
                     refractionHeight = (20f * glassConfig.refractionMultiplier).dp,
                     refractionAmount = (42f * glassConfig.refractionMultiplier).dp,
                     scrollVelocity = scrollVelocity,
                     surfaceTint = Color.White.copy(alpha = 0.12f),
                     accentTint = Color(lastPlayedVideo.accentColorHex)
                 ) {
-                    Box(
+                    Image(
+                        painter = painterResource(id = lastPlayedVideo.posterResId),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.22f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Resume",
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
+                    )
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "متابعة التشغيل • Continue Watching",
+                            text = "متابعة التشغيل الآن • Continue Watching",
                             color = Color(0xFF00E5FF),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
@@ -451,11 +446,11 @@ fun HomeLibraryScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Text(
-                        text = lastPlayedVideo.resolutionBadge,
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Resume",
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             }
@@ -580,7 +575,7 @@ fun HomeLibraryScreen(
 @Composable
 private fun LibraryStatsBanner(
     totalCount: Int,
-    uhdCount: Int,
+    offlineCount: Int,
     sortLabel: String
 ) {
     Row(
@@ -590,12 +585,13 @@ private fun LibraryStatsBanner(
             .background(
                 Brush.horizontalGradient(
                     listOf(
-                        Color(0xFF0091FF).copy(alpha = 0.25f),
-                        Color(0xFF7C4DFF).copy(alpha = 0.20f),
+                        Color(0xFF0091FF).copy(alpha = 0.28f),
+                        Color(0xFF7C4DFF).copy(alpha = 0.22f),
                         Color(0xFF0D1526)
                     )
                 )
             )
+            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(22.dp))
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -609,7 +605,7 @@ private fun LibraryStatsBanner(
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "$totalCount فيديو جاهز • $uhdCount بجودة 4K HDR",
+                text = "$totalCount فيديو • $offlineCount مدمج بدون إنترنت HD",
                 color = Color.White,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold
@@ -624,12 +620,8 @@ private fun LibraryStatsBanner(
     }
 }
 
-/**
- * Interactive iOS 26 Liquid Glass Optical Customizer Studio inside the app.
- */
 @Composable
 private fun LiquidGlassStudioPanel(
-    backdrop: Backdrop,
     config: LiquidGlassStyleConfig,
     onUpdateConfig: (LiquidGlassStyleConfig) -> Unit
 ) {
@@ -644,15 +636,16 @@ private fun LiquidGlassStudioPanel(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .ios26LiquidGlass(
-                backdrop = backdrop,
-                shape = RoundedCornerShape(28.dp),
-                blurRadius = (5f * config.blurMultiplier).dp,
-                refractionHeight = (24f * config.refractionMultiplier).dp,
-                refractionAmount = (48f * config.refractionMultiplier).dp,
-                chromaticAberration = config.chromaticAberration,
-                surfaceTint = Color.White.copy(alpha = 0.10f)
+            .clip(RoundedCornerShape(28.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Color(config.tintColorHex).copy(alpha = 0.28f),
+                        Color(0xFF10192E).copy(alpha = 0.92f)
+                    )
+                )
             )
+            .border(1.2.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(28.dp))
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -740,53 +733,55 @@ private fun VideoThumbnailCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(112.dp)
+            .height(118.dp)
             .clip(RoundedCornerShape(26.dp))
             .background(
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color(video.accentColorHex).copy(alpha = 0.36f),
+                        Color(video.accentColorHex).copy(alpha = 0.38f),
                         Color(0xFF131B2E),
                         Color(0xFF0B101D)
                     )
                 )
             )
+            .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(26.dp))
             .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .layerBackdrop(cardBackdrop)
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Vivid Video Artwork Thumbnail with Refractive Play Badge
+            // Photographic Video Artwork Thumbnail with Refractive Liquid Glass Play Button
             Box(
                 modifier = Modifier
-                    .size(width = 132.dp, height = 88.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                Color(video.accentColorHex),
-                                Color(0xFF0A1124)
-                            )
-                        )
-                    ),
+                    .size(width = 140.dp, height = 94.dp)
+                    .clip(RoundedCornerShape(18.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Box(
+                Image(
+                    painter = painterResource(id = video.posterResId),
+                    contentDescription = video.title,
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.25f)),
-                    contentAlignment = Alignment.Center
+                        .fillMaxSize()
+                        .layerBackdrop(cardBackdrop)
+                )
+
+                // Refractive Liquid Glass Play Circle over the poster thumbnail!
+                LiquidCircleButton(
+                    onClick = onClick,
+                    backdrop = cardBackdrop,
+                    size = 40.dp,
+                    refractionHeight = 14.dp,
+                    refractionAmount = 28.dp
                 ) {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
                         contentDescription = "Play",
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
 
@@ -796,7 +791,7 @@ private fun VideoThumbnailCard(
                         .align(Alignment.BottomEnd)
                         .padding(6.dp)
                         .clip(Capsule())
-                        .background(Color.Black.copy(alpha = 0.65f))
+                        .background(Color.Black.copy(alpha = 0.68f))
                         .padding(horizontal = 7.dp, vertical = 2.dp)
                 ) {
                     Text(
@@ -817,7 +812,7 @@ private fun VideoThumbnailCard(
                 Text(
                     text = video.title,
                     color = Color.White,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -826,9 +821,33 @@ private fun VideoThumbnailCard(
                 Spacer(Modifier.height(6.dp))
 
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if (video.isOfflineBuiltIn) {
+                        Row(
+                            modifier = Modifier
+                                .clip(Capsule())
+                                .background(Color(0xFF00E676).copy(alpha = 0.28f))
+                                .padding(horizontal = 7.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OfflinePin,
+                                contentDescription = null,
+                                tint = Color(0xFF00E676),
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(Modifier.width(3.dp))
+                            Text(
+                                text = "Offline",
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
                             .clip(Capsule())
@@ -838,23 +857,22 @@ private fun VideoThumbnailCard(
                         Text(
                             text = video.resolutionBadge,
                             color = Color.White,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
                     Text(
-                        text = "${video.formattedSize} • ${video.folderName}",
+                        text = video.formattedSize,
                         color = Color.White.copy(alpha = 0.65f),
                         fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        maxLines = 1
                     )
                 }
             }
 
             Column(
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Icon(
@@ -868,7 +886,7 @@ private fun VideoThumbnailCard(
                 Icon(
                     imageVector = Icons.Default.GraphicEq,
                     contentDescription = "Spatial Audio Ready",
-                    tint = Color(0xFF00E5FF).copy(alpha = 0.8f),
+                    tint = Color(0xFF00E5FF).copy(alpha = 0.85f),
                     modifier = Modifier
                         .size(18.dp)
                         .clickable { onToggleVault() }
@@ -892,6 +910,7 @@ private fun FolderGlassCard(
                     listOf(Color(0xFF152238), Color(0xFF0D1524))
                 )
             )
+            .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(24.dp))
             .clickable(onClick = onSelectFolder)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically

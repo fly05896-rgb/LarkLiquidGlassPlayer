@@ -4,7 +4,6 @@ import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.os.Build
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
@@ -76,11 +75,9 @@ private const val LIQUID_WAVE_AGSL = """
     half4 main(float2 coord) {
         float2 uv = coord / max(size, float2(1.0));
         
-        // Edge distance factor (stronger optical bending near the curved capsule/circle edges)
         float2 centered = uv * 2.0 - 1.0;
         float edgeDist = dot(centered, centered);
         
-        // Touch-driven water ripple & scroll-driven refractive wave
         float2 toTouch = coord - touchPoint;
         float distToTouch = length(toTouch);
         float touchWave = exp(-distToTouch * 0.018) * pressProgress * 6.5;
@@ -91,7 +88,6 @@ private const val LIQUID_WAVE_AGSL = """
         float2 dir = distToTouch > 0.001 ? normalize(toTouch) : float2(0.0, 0.0);
         float2 displacement = dir * touchWave + float2(scrollWaveX, scrollWaveY);
         
-        // Chromatic aberration (RGB channel splitting like real high-index iOS 26 crystal glass)
         float aberration = (0.8 + pressProgress * 1.6 + clamp(abs(scrollVelocity) * 0.0015, 0.0, 1.5)) * edgeDist;
         half r = content.eval(coord + displacement + float2(aberration, -aberration * 0.5)).r;
         half g = content.eval(coord + displacement).g;
@@ -102,14 +98,6 @@ private const val LIQUID_WAVE_AGSL = """
     }
 """
 
-/**
- * Interactive Fluid Physics controller for iOS 26 Liquid Glass elements.
- * Handles:
- * 1. Upward elevation lift (`liftHeight`) when pressed ("لما ادوس عليها ترفع لفوق")
- * 2. Magnetic fluid tracking (`offset`) that follows the user's finger smoothly ("وتكون مائية تمشي مع ايدي بكل سلاسة وحركة")
- * 3. Directional squash-and-stretch droplet deformation (`scaleX`, `scaleY`)
- * 4. Specular highlight tracking (`touchPosition`)
- */
 @Stable
 class LiquidInteractivePhysics(
     private val scope: CoroutineScope,
@@ -183,11 +171,6 @@ fun rememberLiquidInteractivePhysics(
     }
 }
 
-/**
- * Core Modifier that turns any Composable into an authentic iOS 26 Liquid Glass element
- * using Kyant0's `drawBackdrop` (`lens`, `vibrancy`, `blur`, `Highlight`, `InnerShadow`, `Shadow`)
- * combined with our interactive fluid physics and optional AGSL wave shader.
- */
 @Composable
 fun Modifier.ios26LiquidGlass(
     backdrop: Backdrop,
@@ -204,7 +187,7 @@ fun Modifier.ios26LiquidGlass(
 ): Modifier {
     val runtimeShader = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            RuntimeShader(LIQUID_WAVE_AGSL)
+            runCatching { RuntimeShader(LIQUID_WAVE_AGSL) }.getOrNull()
         } else null
     }
 
@@ -248,12 +231,14 @@ fun Modifier.ios26LiquidGlass(
                     chromaticAberration = chromaticAberration
                 )
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && runtimeShader != null && (p > 0.01f || abs(scrollVelocity) > 5f)) {
-                    runtimeShader.setFloatUniform("size", size.width.coerceAtLeast(1f), size.height.coerceAtLeast(1f))
-                    runtimeShader.setFloatUniform("scrollVelocity", scrollVelocity)
-                    runtimeShader.setFloatUniform("pressProgress", p)
-                    val tp = physics?.touchPosition ?: Offset(size.width / 2f, size.height / 2f)
-                    runtimeShader.setFloatUniform("touchPoint", tp.x, tp.y)
-                    effect(RenderEffect.createRuntimeShaderEffect(runtimeShader, "content"))
+                    runCatching {
+                        runtimeShader.setFloatUniform("size", size.width.coerceAtLeast(1f), size.height.coerceAtLeast(1f))
+                        runtimeShader.setFloatUniform("scrollVelocity", scrollVelocity)
+                        runtimeShader.setFloatUniform("pressProgress", p)
+                        val tp = physics?.touchPosition ?: Offset(size.width / 2f, size.height / 2f)
+                        runtimeShader.setFloatUniform("touchPoint", tp.x, tp.y)
+                        effect(RenderEffect.createRuntimeShaderEffect(runtimeShader, "content"))
+                    }
                 }
             },
             highlight = {
@@ -282,12 +267,10 @@ fun Modifier.ios26LiquidGlass(
                     val dragSensitivity = 0.085f
                     val offset = physics.dragOffset
 
-                    // Smooth magnetic follow on X & Y + upward liquid lift on press
                     val upwardLiftPx = physics.liftHeightDp.toPx() * p
                     translationX = maxOffset * tanh(dragSensitivity * offset.x / maxOffset)
                     translationY = -upwardLiftPx + maxOffset * tanh(dragSensitivity * offset.y / maxOffset)
 
-                    // Water-droplet directional stretch when dragged
                     val maxDragScale = 6.dp.toPx() / height
                     val offsetAngle = atan2(offset.y, offset.x)
                     val stretchX = maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension.coerceAtLeast(1f)) *
@@ -310,7 +293,6 @@ fun Modifier.ios26LiquidGlass(
         )
         .drawWithContent {
             drawContent()
-            // Specular crystal rim reflection (matches the bright top-left & bottom-right edge in the iOS 26 screenshots)
             val p = physics?.pressProgress ?: 0f
             val strokeWidth = (1.1.dp + 0.6.dp * p).toPx()
             drawRect(
@@ -330,10 +312,6 @@ fun Modifier.ios26LiquidGlass(
         }
 }
 
-/**
- * Circular iOS 26 Liquid Glass Button (Used for Play/Pause, 15s/10s Skip, and Close X button).
- * Features strong convex SDF lens refraction so the video background bends through the button!
- */
 @Composable
 fun LiquidCircleButton(
     onClick: () -> Unit,
@@ -377,10 +355,6 @@ fun LiquidCircleButton(
     )
 }
 
-/**
- * Capsule Pill iOS 26 Liquid Glass Container (Used for Top-Left PiP/AirPlay pill,
- * Top-Right Volume pill, Bottom-Right Audio/Subtitles pill, and Bottom Timeline Scrubber).
- */
 @Composable
 fun LiquidCapsulePill(
     backdrop: Backdrop,

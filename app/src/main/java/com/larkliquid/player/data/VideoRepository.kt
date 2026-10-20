@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
+import com.larkliquid.player.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -28,7 +29,8 @@ data class VideoItem(
     val dateAddedSec: Long,
     val isFavorite: Boolean = false,
     val isPrivateVault: Boolean = false,
-    val lastPositionMs: Long = 0L,
+    val isOfflineBuiltIn: Boolean = false,
+    val posterResId: Int = R.drawable.poster_wolf_scene,
     val accentColorHex: Long = 0xFF0091FF
 ) {
     val resolutionBadge: String
@@ -96,14 +98,17 @@ enum class SortOption(val labelAr: String) {
 class VideoRepository(private val context: Context) {
 
     /**
-     * Scans all videos on the device via Android MediaStore (Lark Video engine)
-     * and appends 8 built-in 4K/HD showcase streams so the user can test iOS 26 Liquid Glass
-     * refraction immediately even if the device/emulator has no local video files yet.
+     * Loads built-in offline MP4 videos from `res/raw/`, scans all local device videos via Android MediaStore,
+     * and appends online 4K HDR showcase streams.
      */
     suspend fun loadVideos(): List<VideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<VideoItem>()
-        val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
 
+        // 1. Add embedded OFFLINE HD MP4 videos first so they work immediately with zero internet!
+        list.addAll(builtInShowcaseStreams())
+
+        // 2. Scan all local device videos from MediaStore
+        val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         val projection = arrayOf(
             MediaStore.Video.Media._ID,
             MediaStore.Video.Media.DISPLAY_NAME,
@@ -116,6 +121,13 @@ class VideoRepository(private val context: Context) {
         )
 
         val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
+        val posters = listOf(
+            R.drawable.poster_wolf_scene,
+            R.drawable.poster_hello_desk,
+            R.drawable.poster_liquid_aurora,
+            R.drawable.poster_cyber_cinema
+        )
+        val palette = listOf(0xFF0091FF, 0xFF7C4DFF, 0xFF00E5FF, 0xFFFF3366, 0xFF00E676, 0xFFFF9100)
 
         runCatching {
             context.contentResolver.query(
@@ -134,7 +146,6 @@ class VideoRepository(private val context: Context) {
                 val folderCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
                 val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED)
 
-                val palette = listOf(0xFF0091FF, 0xFF7C4DFF, 0xFF00E5FF, 0xFFFF3366, 0xFF00E676, 0xFFFF9100)
                 var idx = 0
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idCol)
@@ -158,6 +169,7 @@ class VideoRepository(private val context: Context) {
                             height = height,
                             folderName = folder,
                             dateAddedSec = dateAdded,
+                            posterResId = posters[idx % posters.size],
                             accentColorHex = palette[idx % palette.size]
                         )
                     )
@@ -166,109 +178,97 @@ class VideoRepository(private val context: Context) {
             }
         }
 
-        list.addAll(builtInShowcaseStreams())
         list
     }
 
-    fun builtInShowcaseStreams(): List<VideoItem> = listOf(
-        VideoItem(
-            id = -101L,
-            title = "Sintel — Fantasy Wolf & Dragon (iOS 26 Reference Scene 1)",
-            uri = Uri.parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4"),
-            durationMs = 888_000L,
-            sizeBytes = 129_400_000L,
-            width = 3840,
-            height = 2160,
-            folderName = "iOS 26 Showcase 4K",
-            dateAddedSec = 1760000800L,
-            isFavorite = true,
-            accentColorHex = 0xFF2979FF
-        ),
-        VideoItem(
-            id = -102L,
-            title = "Hello Desk Studio — Optical Glass Refraction (iOS 26 Reference Scene 2)",
-            uri = Uri.parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"),
-            durationMs = 15_000L,
-            sizeBytes = 14_200_000L,
-            width = 1920,
-            height = 1080,
-            folderName = "iOS 26 Showcase 4K",
-            dateAddedSec = 1760000700L,
-            isFavorite = true,
-            accentColorHex = 0xFF00E5FF
-        ),
-        VideoItem(
-            id = -103L,
-            title = "Tears of Steel — Sci-Fi 4K HDR Spatial Audio Cinema",
-            uri = Uri.parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"),
-            durationMs = 734_000L,
-            sizeBytes = 185_000_000L,
-            width = 3840,
-            height = 2160,
-            folderName = "Cinema 4K HDR",
-            dateAddedSec = 1760000600L,
-            isFavorite = true,
-            accentColorHex = 0xFFAA00FF
-        ),
-        VideoItem(
-            id = -104L,
-            title = "Big Buck Bunny — 60fps Fluid Motion & Color Vibrancy",
-            uri = Uri.parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"),
-            durationMs = 596_000L,
-            sizeBytes = 158_000_000L,
-            width = 1920,
-            height = 1080,
-            folderName = "Cinema 4K HDR",
-            dateAddedSec = 1760000500L,
-            accentColorHex = 0xFF00E676
-        ),
-        VideoItem(
-            id = -105L,
-            title = "Elephants Dream — Surreal 3D Audio & Bass Boost Test",
-            uri = Uri.parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"),
-            durationMs = 653_000L,
-            sizeBytes = 142_000_000L,
-            width = 1920,
-            height = 1080,
-            folderName = "Spatial Audio Lab",
-            dateAddedSec = 1760000400L,
-            accentColorHex = 0xFFFF3366
-        ),
-        VideoItem(
-            id = -106L,
-            title = "For Bigger Escapes — Alpine Nature 4K Crystal HDR",
-            uri = Uri.parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"),
-            durationMs = 15_000L,
-            sizeBytes = 18_500_000L,
-            width = 3840,
-            height = 2160,
-            folderName = "iOS 26 Showcase 4K",
-            dateAddedSec = 1760000300L,
-            accentColorHex = 0xFF00B0FF
-        ),
-        VideoItem(
-            id = -107L,
-            title = "For Bigger Fun — High-Contrast Chromatic Dispersion Demo",
-            uri = Uri.parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4"),
-            durationMs = 60_000L,
-            sizeBytes = 42_000_000L,
-            width = 1920,
-            height = 1080,
-            folderName = "Spatial Audio Lab",
-            dateAddedSec = 1760000200L,
-            accentColorHex = 0xFFFF9100
-        ),
-        VideoItem(
-            id = -108L,
-            title = "Subaru Outback & Bullrun — Fast Panning Motion Refraction",
-            uri = Uri.parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4"),
-            durationMs = 47_000L,
-            sizeBytes = 36_800_000L,
-            width = 1920,
-            height = 1080,
-            folderName = "Action 60FPS",
-            dateAddedSec = 1760000100L,
-            accentColorHex = 0xFF651FFF
+    fun builtInShowcaseStreams(): List<VideoItem> {
+        val pkg = context.packageName
+        return listOf(
+            VideoItem(
+                id = -101L,
+                title = "Wolf & Dragon Fantasy — مشهد الذئب الأصلي (بدون إنترنت HD)",
+                uri = Uri.parse("android.resource://$pkg/${R.raw.ios26_wolf_cinema}"),
+                durationMs = 12_000L,
+                sizeBytes = 3_680_000L,
+                width = 3840,
+                height = 2160,
+                folderName = "iOS 26 Offline Cinema",
+                dateAddedSec = 1760000900L,
+                isFavorite = true,
+                isOfflineBuiltIn = true,
+                posterResId = R.drawable.poster_wolf_scene,
+                accentColorHex = 0xFF2979FF
+            ),
+            VideoItem(
+                id = -102L,
+                title = "Hello Desk Studio — تجربة انكسار الزجاج السائل (بدون إنترنت HD)",
+                uri = Uri.parse("android.resource://$pkg/${R.raw.ios26_hello_studio}"),
+                durationMs = 12_000L,
+                sizeBytes = 3_580_000L,
+                width = 1920,
+                height = 1080,
+                folderName = "iOS 26 Offline Cinema",
+                dateAddedSec = 1760000850L,
+                isFavorite = true,
+                isOfflineBuiltIn = true,
+                posterResId = R.drawable.poster_hello_desk,
+                accentColorHex = 0xFF00E5FF
+            ),
+            VideoItem(
+                id = -103L,
+                title = "Liquid Glass Aurora Prism — اختبار التشتت اللوني 120Hz (بدون إنترنت)",
+                uri = Uri.parse("android.resource://$pkg/${R.raw.ios26_liquid_aurora}"),
+                durationMs = 10_000L,
+                sizeBytes = 3_290_000L,
+                width = 3840,
+                height = 2160,
+                folderName = "iOS 26 Offline Cinema",
+                dateAddedSec = 1760000800L,
+                isFavorite = true,
+                isOfflineBuiltIn = true,
+                posterResId = R.drawable.poster_liquid_aurora,
+                accentColorHex = 0xFF7C4DFF
+            ),
+            VideoItem(
+                id = -104L,
+                title = "Sintel Full Movie — 4K HDR Fantasy Stream",
+                uri = Uri.parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4"),
+                durationMs = 888_000L,
+                sizeBytes = 129_400_000L,
+                width = 3840,
+                height = 2160,
+                folderName = "Online 4K Streams",
+                dateAddedSec = 1760000700L,
+                isFavorite = true,
+                posterResId = R.drawable.poster_wolf_scene,
+                accentColorHex = 0xFF00B0FF
+            ),
+            VideoItem(
+                id = -105L,
+                title = "Tears of Steel — Sci-Fi 4K HDR Spatial Audio Cinema",
+                uri = Uri.parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"),
+                durationMs = 734_000L,
+                sizeBytes = 185_000_000L,
+                width = 3840,
+                height = 2160,
+                folderName = "Online 4K Streams",
+                dateAddedSec = 1760000600L,
+                posterResId = R.drawable.poster_cyber_cinema,
+                accentColorHex = 0xFFAA00FF
+            ),
+            VideoItem(
+                id = -106L,
+                title = "Big Buck Bunny — 60fps Fluid Motion & Color Vibrancy",
+                uri = Uri.parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"),
+                durationMs = 596_000L,
+                sizeBytes = 158_000_000L,
+                width = 1920,
+                height = 1080,
+                folderName = "Online 4K Streams",
+                dateAddedSec = 1760000500L,
+                posterResId = R.drawable.poster_liquid_aurora,
+                accentColorHex = 0xFF00E676
+            )
         )
-    )
+    }
 }

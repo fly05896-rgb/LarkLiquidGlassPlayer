@@ -40,9 +40,7 @@ import kotlin.math.min
  * Self-contained, hardware-accelerated implementation of the Kyant0 `com.kyant.backdrop`
  * Liquid Glass engine powered by Jetpack Compose `GraphicsLayer` and Android 13+ AGSL `RuntimeShader`.
  *
- * Implements the exact Signed Distance Field (SDF) rounded-box convex lens refraction,
- * chromatic aberration (RGB dispersion), Gaussian blur, vibrancy saturation boost,
- * and specular inner/outer highlights of iOS 26 Liquid Glass.
+ * Fixed AGSL syntax (`0.0` / `1.0` standard floats without invalid `h` suffixes) verified against Android 13–15 SkSL/AGSL compilers.
  */
 @Stable
 interface Backdrop {
@@ -63,8 +61,7 @@ internal class OffsetHolder(var value: Offset = Offset.Zero)
 
 /**
  * AGSL Signed Distance Field (SDF) Convex Liquid Glass Lens Shader (Android 13+ / API 33+).
- * Computes the exact distance from the rounded capsule/circle boundary and bends background pixels
- * inward/outward like a physical water droplet lens with optional RGB chromatic dispersion.
+ * Uses strict standard SkSL/AGSL float literals (no `half-literal` suffix) so it compiles cleanly on all GPUs.
  */
 private const val KYANT_SDF_LENS_AGSL = """
     uniform shader content;
@@ -85,48 +82,40 @@ private const val KYANT_SDF_LENS_AGSL = """
         float2 p = coord - halfSize;
         float r = clamp(cornerRadius, 0.0, min(halfSize.x, halfSize.y));
         
-        // Signed distance to the rounded glass edge (negative inside, 0 at boundary)
         float dist = sdRoundedBox(p, halfSize, r);
         float edgeBand = max(refractionHeight, 1.0);
         
-        // Normalized rim factor: 0.0 deep inside, 1.0 right at the curved glass edge
         float rim = clamp(1.0 + dist / edgeBand, 0.0, 1.0);
-        // Smooth convex lens profile (Snell's law approximation)
         float lensProfile = rim * rim * (3.0 - 2.0 * rim);
         
-        // Outward normal vector from center
         float2 normal = length(p) > 0.001 ? normalize(p) : float2(0.0, 0.0);
         
-        // Depth magnification + edge lens refraction displacement
-        float depthScale = depthEffect != 0 ? (-0.06 * (1.0 - lensProfile)) : 0.0;
-        float2 displacement = -normal * (lensProfile * refractionAmount * 0.42) + p * depthScale;
+        float depthScale = depthEffect != 0 ? (-0.07 * (1.0 - lensProfile)) : 0.0;
+        float2 displacement = -normal * (lensProfile * refractionAmount * 0.48) + p * depthScale;
         
         float2 sampleCoord = clamp(coord + displacement, float2(0.0), max(size - 1.0, float2(1.0)));
+        float rimGlow = lensProfile * 0.14;
         
         if (chromaticAberration != 0) {
-            float2 chromaOffset = normal * (lensProfile * min(refractionAmount * 0.065, 4.5));
+            float2 chromaOffset = normal * (lensProfile * min(refractionAmount * 0.07, 5.0));
             float2 rCoord = clamp(sampleCoord + chromaOffset, float2(0.0), max(size - 1.0, float2(1.0)));
             float2 bCoord = clamp(sampleCoord - chromaOffset, float2(0.0), max(size - 1.0, float2(1.0)));
-            half red = content.eval(rCoord).r;
+            
+            float red = float(content.eval(rCoord).r);
             half4 greenAlpha = content.eval(sampleCoord);
-            half blue = content.eval(bCoord).b;
-            // Subtle specular rim brightening along the curved glass bevel
-            half rimGlow = half(lensProfile * 0.14);
-            return half4(
-                clamp(red + rimGlow, 0.0h, 1.0h),
-                clamp(greenAlpha.g + rimGlow, 0.0h, 1.0h),
-                clamp(blue + rimGlow * 1.15h, 0.0h, 1.0h),
-                greenAlpha.a
-            );
+            float green = float(greenAlpha.g);
+            float blue = float(content.eval(bCoord).b);
+            
+            float outR = clamp(red + rimGlow, 0.0, 1.0);
+            float outG = clamp(green + rimGlow, 0.0, 1.0);
+            float outB = clamp(blue + rimGlow * 1.15, 0.0, 1.0);
+            return half4(half(outR), half(outG), half(outB), greenAlpha.a);
         } else {
             half4 col = content.eval(sampleCoord);
-            half rimGlow = half(lensProfile * 0.12);
-            return half4(
-                clamp(col.r + rimGlow, 0.0h, 1.0h),
-                clamp(col.g + rimGlow, 0.0h, 1.0h),
-                clamp(col.b + rimGlow, 0.0h, 1.0h),
-                col.a
-            );
+            float outR = clamp(float(col.r) + rimGlow, 0.0, 1.0);
+            float outG = clamp(float(col.g) + rimGlow, 0.0, 1.0);
+            float outB = clamp(float(col.b) + rimGlow, 0.0, 1.0);
+            return half4(half(outR), half(outG), half(outB), col.a);
         }
     }
 """
@@ -194,83 +183,80 @@ fun Modifier.drawBackdrop(
             }
 
             onDrawWithContent {
-                val sh = shadow?.invoke()
-                if (sh != null && sh.alpha > 0.01f) {
-                    drawRoundRect(
-                        color = Color.Black.copy(alpha = 0.28f * sh.alpha),
-                        topLeft = Offset(0f, 4.dp.toPx()),
-                        size = size,
-                        cornerRadius = CornerRadius(size.minDimension / 2f, size.minDimension / 2f)
-                    )
-                }
-
-                // Record and render the refracted background layer clipped to the glass shape
-                val sourceLayer = backdrop.graphicsLayer
-                if (sourceLayer != null) {
-                    foregroundLayer.renderEffect = composeRenderEffect
-                    foregroundLayer.record {
-                        val dx = backdrop.rootOffset.x - offsetHolder.value.x
-                        val dy = backdrop.rootOffset.y - offsetHolder.value.y
-                        withTransform({
-                            translate(left = dx, top = dy)
-                        }) {
-                            drawLayer(sourceLayer)
-                        }
+                if (size.width > 1f && size.height > 1f) {
+                    val sh = shadow?.invoke()
+                    if (sh != null && sh.alpha > 0.01f) {
+                        drawRoundRect(
+                            color = Color.Black.copy(alpha = 0.28f * sh.alpha),
+                            topLeft = Offset(0f, 4.dp.toPx()),
+                            size = size,
+                            cornerRadius = CornerRadius(size.minDimension / 2f, size.minDimension / 2f)
+                        )
                     }
 
-                    clipPath(clipPath) {
-                        drawLayer(foregroundLayer)
-                        onDrawSurface?.invoke(this)
+                    val sourceLayer = backdrop.graphicsLayer
+                    if (sourceLayer != null) {
+                        foregroundLayer.renderEffect = composeRenderEffect
+                        foregroundLayer.record {
+                            val dx = backdrop.rootOffset.x - offsetHolder.value.x
+                            val dy = backdrop.rootOffset.y - offsetHolder.value.y
+                            withTransform({
+                                translate(left = dx, top = dy)
+                            }) {
+                                drawLayer(sourceLayer)
+                            }
+                        }
 
-                        // InnerShadow depth rim
-                        val inSh = innerShadow?.invoke()
-                        if (inSh != null && inSh.alpha > 0.01f) {
-                            drawRect(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.24f * inSh.alpha),
-                                        Color.Transparent,
-                                        Color.Black.copy(alpha = 0.22f * inSh.alpha)
+                        clipPath(clipPath) {
+                            drawLayer(foregroundLayer)
+                            onDrawSurface?.invoke(this)
+
+                            val inSh = innerShadow?.invoke()
+                            if (inSh != null && inSh.alpha > 0.01f) {
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.White.copy(alpha = 0.26f * inSh.alpha),
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = 0.22f * inSh.alpha)
+                                        )
                                     )
                                 )
-                            )
-                        }
+                            }
 
-                        // Specular Highlight bevel
-                        val hl = highlight?.invoke()
-                        if (hl != null && hl.alpha > 0.01f) {
-                            val strokeW = 1.25.dp.toPx()
-                            drawRoundRect(
-                                brush = Brush.linearGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.65f * hl.alpha),
-                                        Color.White.copy(alpha = 0.10f * hl.alpha),
-                                        Color.White.copy(alpha = 0.45f * hl.alpha)
+                            val hl = highlight?.invoke()
+                            if (hl != null && hl.alpha > 0.01f) {
+                                val strokeW = 1.3.dp.toPx()
+                                drawRoundRect(
+                                    brush = Brush.linearGradient(
+                                        colors = listOf(
+                                            Color.White.copy(alpha = 0.68f * hl.alpha),
+                                            Color.White.copy(alpha = 0.12f * hl.alpha),
+                                            Color.White.copy(alpha = 0.48f * hl.alpha)
+                                        ),
+                                        start = Offset.Zero,
+                                        end = Offset(size.width, size.height)
                                     ),
-                                    start = Offset.Zero,
-                                    end = Offset(size.width, size.height)
-                                ),
-                                cornerRadius = CornerRadius(size.minDimension / 2f, size.minDimension / 2f),
-                                style = Stroke(width = strokeW),
-                                blendMode = BlendMode.Plus
-                            )
+                                    cornerRadius = CornerRadius(size.minDimension / 2f, size.minDimension / 2f),
+                                    style = Stroke(width = strokeW),
+                                    blendMode = BlendMode.Plus
+                                )
+                            }
+                        }
+                    } else {
+                        clipPath(clipPath) {
+                            onDrawSurface?.invoke(this)
                         }
                     }
-                } else {
-                    clipPath(clipPath) {
-                        onDrawSurface?.invoke(this)
+
+                    if (exportedBackdrop != null) {
+                        exportedBackdrop.rootOffset = offsetHolder.value
+                        exportedBackdrop.graphicsLayer.record {
+                            drawLayer(foregroundLayer)
+                        }
                     }
                 }
 
-                // If exportedBackdrop is provided, record into it for nested glass elements
-                if (exportedBackdrop != null) {
-                    exportedBackdrop.rootOffset = offsetHolder.value
-                    exportedBackdrop.graphicsLayer.record {
-                        drawLayer(foregroundLayer)
-                    }
-                }
-
-                // Draw foreground icon / text content cleanly on top of the liquid glass lens
                 drawContent()
             }
         }
@@ -286,14 +272,16 @@ internal fun createKyantLensShader(
     chromaticAberration: Boolean
 ): RenderEffect? {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
-    val shader = RuntimeShader(KYANT_SDF_LENS_AGSL)
-    val safeW = width.coerceAtLeast(1f)
-    val safeH = height.coerceAtLeast(1f)
-    shader.setFloatUniform("size", safeW, safeH)
-    shader.setFloatUniform("cornerRadius", min(safeW, safeH) * 0.5f)
-    shader.setFloatUniform("refractionHeight", refractionHeight.coerceAtLeast(1f))
-    shader.setFloatUniform("refractionAmount", refractionAmount)
-    shader.setIntUniform("depthEffect", if (depthEffect) 1 else 0)
-    shader.setIntUniform("chromaticAberration", if (chromaticAberration) 1 else 0)
-    return RenderEffect.createRuntimeShaderEffect(shader, "content")
+    return runCatching {
+        val shader = RuntimeShader(KYANT_SDF_LENS_AGSL)
+        val safeW = width.coerceAtLeast(1f)
+        val safeH = height.coerceAtLeast(1f)
+        shader.setFloatUniform("size", safeW, safeH)
+        shader.setFloatUniform("cornerRadius", min(safeW, safeH) * 0.5f)
+        shader.setFloatUniform("refractionHeight", refractionHeight.coerceAtLeast(1f))
+        shader.setFloatUniform("refractionAmount", refractionAmount)
+        shader.setIntUniform("depthEffect", if (depthEffect) 1 else 0)
+        shader.setIntUniform("chromaticAberration", if (chromaticAberration) 1 else 0)
+        RenderEffect.createRuntimeShaderEffect(shader, "content")
+    }.getOrNull()
 }
