@@ -1,0 +1,71 @@
+name: Build Lark Liquid Glass iOS 26 APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android-apk:
+    name: Compile & Package Liquid Glass APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle 8.10.2 (No wrapper binary required)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+          cache-read-only: false
+
+      - name: Build Debug & Signed Release APKs
+        run: |
+          gradle assembleDebug assembleRelease --stacktrace
+
+      - name: Rename APKs for Easy Download
+        run: |
+          mkdir -p output-apks
+          cp app/build/outputs/apk/debug/app-debug.apk output-apks/LarkLiquidGlass-iOS26-Debug.apk
+          cp app/build/outputs/apk/release/app-release.apk output-apks/LarkLiquidGlass-iOS26-Release.apk
+          ls -lh output-apks/
+
+      - name: Upload Ready-to-Install APKs to GitHub Actions Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LarkLiquidGlass-iOS26-Player-APKs
+          path: output-apks/*.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish Automatic GitHub Release (on main/master push)
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "Lark Liquid Glass Player (iOS 26 Edition) #${{ github.run_number }}"
+          body: |
+            ### 💧 Lark Liquid Glass Video Player — iOS 26 Edition
+            - **Real SDF Optical Lens Refraction & Chromatic Dispersion** powered by `io.github.kyant0:backdrop:2.0.1`, `io.github.kyant0:capsule:2.1.2`, and custom Android 13+ AGSL `RuntimeShader`.
+            - **Interactive Fluid Droplet Physics**: Buttons lift upward (`translationY`), expand with spring physics, and smoothly follow your finger (`tanh` magnetic drag).
+            - **Main Library Refractive Scrolling**: Video thumbnails refract through the floating top search bar, category pills, and bottom navigation bar as you scroll.
+            - **Hardware-Accelerated Media3 (ExoPlayer) + 200% Volume Booster & Spatial 3D Equalizer**.
+          files: |
+            output-apks/LarkLiquidGlass-iOS26-Release.apk
+            output-apks/LarkLiquidGlass-iOS26-Debug.apk
+          prerelease: false

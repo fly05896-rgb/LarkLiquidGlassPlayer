@@ -1,0 +1,5 @@
+-keepattributes *Annotation*,SourceFile,LineNumberTable
+-keep class com.kyant.backdrop.** { *; }
+-keep class com.kyant.shapes.** { *; }
+-keep class androidx.media3.** { *; }
+-dontwarn kotlin.**
