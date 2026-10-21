@@ -4,7 +4,7 @@ import androidx.compose.runtime.Immutable
 import com.larkliquid.player.data.VideoItem
 import kotlin.math.abs
 
-enum classQueueRepeatMode {
+enum class ClassQueueRepeatMode {
     OFF,
     REPEAT_ALL,
     REPEAT_ONE
@@ -88,10 +88,4 @@ object PlaybackQueueManager {
             )
         }
     }
-}
-
-enum class ClassQueueRepeatMode {
-    OFF,
-    REPEAT_ALL,
-    REPEAT_ONE
 }
