@@ -21,7 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
@@ -33,7 +32,6 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -93,18 +91,18 @@ fun LiquidToggle(
                 if (!didDrag) {
                     didDrag = dragAmount.x != 0f
                 }
-                val delta = dragAmount.x / dragWidth
+                val delta = dragAmount.x / dragWidth.coerceAtLeast(1f)
                 fraction =
-                    if (isLtr) (fraction + delta).fastCoerceIn(0f, 1f)
-                    else (fraction - delta).fastCoerceIn(0f, 1f)
+                    if (isLtr) (fraction + delta).coerceIn(0f, 1f)
+                    else (fraction - delta).coerceIn(0f, 1f)
                 updateValue(fraction)
             }
         )
     }
     LaunchedEffect(dampedDragAnimation) {
         snapshotFlow { fraction }
-            .collectLatest { fraction ->
-                dampedDragAnimation.updateValue(fraction)
+            .collectLatest { value ->
+                dampedDragAnimation.updateValue(value)
             }
     }
     LaunchedEffect(selected) {
@@ -140,7 +138,7 @@ fun LiquidToggle(
                     },
                     shadow = null,
                     onDrawSurface = {
-                        val progress = dampedDragAnimation.value
+                        val progress = dampedDragAnimation.value.coerceIn(0f, 1f)
                         drawRect(lerp(trackColor, accentColor, progress))
                     }
                 )
@@ -150,11 +148,11 @@ fun LiquidToggle(
         Box(
             Modifier
                 .graphicsLayer {
-                    val fraction = dampedDragAnimation.value
+                    val f = dampedDragAnimation.value.coerceIn(0f, 1f)
                     val padding = 2f.dp.toPx()
                     translationX =
-                        if (isLtr) lerp(padding, padding + dragWidth, fraction)
-                        else lerp(-padding, -(padding + dragWidth), fraction)
+                        if (isLtr) lerp(padding, padding + dragWidth, f)
+                        else lerp(-padding, -(padding + dragWidth), f)
                 }
                 .semantics {
                     role = Role.Switch
@@ -167,23 +165,7 @@ fun LiquidToggle(
                 )
                 .then(dampedDragAnimation.modifier)
                 .drawBackdrop(
-                    backdrop = rememberCombinedBackdrop(
-                        backdrop,
-                        rememberLayerBackdrop {
-                            val progress = dampedDragAnimation.pressProgress
-                            scale(
-                                scaleX = lerp(2f / 3f, 0.75f, progress),
-                                scaleY = lerp(0f, 0.75f, progress)
-                            ) {
-                                with(trackBackdrop) {
-                                    drawBackdrop(
-                                        density = this@rememberLayerBackdrop,
-                                        coordinates = trackBackdrop.rootOffset
-                                    )
-                                }
-                            }
-                        }
-                    ),
+                    backdrop = rememberCombinedBackdrop(backdrop, trackBackdrop),
                     shape = { Capsule() },
                     effects = {
                         val progress = dampedDragAnimation.pressProgress
@@ -219,8 +201,8 @@ fun LiquidToggle(
                         scaleX = dampedDragAnimation.scaleX
                         scaleY = dampedDragAnimation.scaleY
                         val velocity = dampedDragAnimation.velocity / 50f
-                        scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
-                        scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
+                        scaleX /= 1f - (velocity * 0.75f).coerceIn(-0.2f, 0.2f)
+                        scaleY *= 1f - (velocity * 0.25f).coerceIn(-0.2f, 0.2f)
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
@@ -255,7 +237,7 @@ fun LiquidSlider(
         modifier.fillMaxWidth(),
         contentAlignment = Alignment.CenterStart
     ) {
-        val trackWidth = constraints.maxWidth
+        val trackWidth = constraints.maxWidth.toFloat().coerceAtLeast(1f)
 
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
@@ -288,9 +270,9 @@ fun LiquidSlider(
         }
         LaunchedEffect(value) {
             snapshotFlow { value() }
-                .collectLatest { value ->
-                    if (dampedDragAnimation.targetValue != value) {
-                        dampedDragAnimation.updateValue(value)
+                .collectLatest { v ->
+                    if (dampedDragAnimation.targetValue != v) {
+                        dampedDragAnimation.updateValue(v)
                     }
                 }
         }
@@ -322,7 +304,7 @@ fun LiquidSlider(
                     .height(6f.dp)
                     .layout { measurable, constraints ->
                         val placeable = measurable.measure(constraints)
-                        val width = (constraints.maxWidth * dampedDragAnimation.progress).toInt()
+                        val width = (constraints.maxWidth * dampedDragAnimation.progress.coerceIn(0f, 1f)).toInt()
                         layout(width, placeable.height) {
                             placeable.place(0, 0)
                         }
@@ -334,28 +316,12 @@ fun LiquidSlider(
             Modifier
                 .graphicsLayer {
                     translationX =
-                        (-size.width / 2f + trackWidth * dampedDragAnimation.progress)
-                            .fastCoerceIn(-size.width / 4f, trackWidth - size.width * 3f / 4f) * if (isLtr) 1f else -1f
+                        (-size.width / 2f + trackWidth * dampedDragAnimation.progress.coerceIn(0f, 1f))
+                            .coerceIn(-size.width / 4f, trackWidth - size.width * 3f / 4f) * if (isLtr) 1f else -1f
                 }
                 .then(dampedDragAnimation.modifier)
                 .drawBackdrop(
-                    backdrop = rememberCombinedBackdrop(
-                        backdrop,
-                        rememberLayerBackdrop {
-                            val progress = dampedDragAnimation.pressProgress
-                            scale(
-                                scaleX = lerp(2f / 3f, 1f, progress),
-                                scaleY = lerp(0f, 1f, progress)
-                            ) {
-                                with(trackBackdrop) {
-                                    drawBackdrop(
-                                        density = this@rememberLayerBackdrop,
-                                        coordinates = trackBackdrop.rootOffset
-                                    )
-                                }
-                            }
-                        }
-                    ),
+                    backdrop = rememberCombinedBackdrop(backdrop, trackBackdrop),
                     shape = { Capsule() },
                     effects = {
                         val progress = dampedDragAnimation.pressProgress
@@ -391,8 +357,8 @@ fun LiquidSlider(
                         scaleX = dampedDragAnimation.scaleX
                         scaleY = dampedDragAnimation.scaleY
                         val velocity = dampedDragAnimation.velocity / 10f
-                        scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
-                        scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
+                        scaleX /= 1f - (velocity * 0.75f).coerceIn(-0.2f, 0.2f)
+                        scaleY *= 1f - (velocity * 0.25f).coerceIn(-0.2f, 0.2f)
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
