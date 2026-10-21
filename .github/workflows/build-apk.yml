@@ -1,4 +1,4 @@
-name: Build EG Player 2026 APK
+name: Build EG Player APK
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build-android-apk:
-    name: Compile & Package EG Player APK (C++23 + Kotlin K2)
+    name: Compile & Package Single EG Player APK
     runs-on: ubuntu-latest
 
     steps:
@@ -50,38 +50,35 @@ jobs:
           gradle-version: '8.10.2'
           cache-read-only: false
 
-      - name: Build Debug & Signed Store Release APKs (C++23 NDK + Kotlin K2)
+      - name: Build Signed Store Release APK (Single Unified APK)
         run: |
-          gradle assembleDebug assembleRelease -PenableNativeCmake=true --stacktrace || gradle assembleDebug assembleRelease --stacktrace
+          gradle assembleRelease -PenableNativeCmake=true --stacktrace || gradle assembleRelease --stacktrace
 
-      - name: Prepare Output APKs for Download
+      - name: Prepare Single Output APK (EGPlayer.apk)
         run: |
-          mkdir -p output-apks
-          cp app/build/outputs/apk/debug/app-debug.apk output-apks/EGPlayer-2026-Debug.apk
-          cp app/build/outputs/apk/release/app-release.apk output-apks/EGPlayer-2026-Release.apk
-          ls -lh output-apks/
+          mkdir -p output-apk
+          cp app/build/outputs/apk/release/app-release.apk output-apk/EGPlayer.apk
+          ls -lh output-apk/
 
-      - name: Upload Ready-to-Install EG Player APKs to GitHub Actions Artifacts
+      - name: Upload Single Ready-to-Install EGPlayer.apk to GitHub Actions Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: EGPlayer-2026-APKs
-          path: output-apks/*.apk
+          name: EGPlayer-APK
+          path: output-apk/EGPlayer.apk
           if-no-files-found: error
           retention-days: 90
 
-      - name: Publish Automatic GitHub Release (on main/master push)
+      - name: Publish Automatic GitHub Release (Single APK)
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v5.0.${{ github.run_number }}
-          name: "EG Player 2026 (C++23 Machine Code + Kotlin K2 Release) #${{ github.run_number }}"
+          tag_name: v6.0.${{ github.run_number }}
+          name: "EG Player Official Release #${{ github.run_number }}"
           body: |
-            ### 💎 EG Player 2026 — Official Store Production Release
-            - **Hybrid C++23 Machine-Code (`libeg_native_engine.so`) + Kotlin 2.1 (K2 Compiler)** architecture for locked 120Hz zero-lag performance on Snapdragon 8 Elite & MediaTek Helio G99 Ultra.
-            - **16 Global Languages (RTL & LTR)** with pixel-perfect dimensions in Arabic (`العربية`), English, French, Spanish, German, Turkish, Russian, Chinese, Japanese, Korean, Hindi, Portuguese, Italian, Indonesian, Urdu & Persian.
-            - **New 3D Crystal Glass Sphere Icon** with custom 1:1 squircle & round adaptive dimensions.
-            - **Pure Natural Crystal Glass Video Player**, Retractable Floating Player with Front Handle Bar, Custom Playlists, Private Vault with Folder Picker, and Recently Deleted Trash Bin.
+            ### EG Player — Official Store Release
+            - Single ready-to-install `EGPlayer.apk` package.
+            - Authentic Liquid Glass bottom navigation bar and top search bar (`com.kyant.backdrop`).
+            - Automatic phone language detection (`RTL` & `LTR`), real device video frame thumbnails, and full iOS Media3 video player with Previous/Next buttons, Auto-Play Next, 10s skip, and animated vector 2.0x speed indicator.
           files: |
-            output-apks/EGPlayer-2026-Release.apk
-            output-apks/EGPlayer-2026-Debug.apk
+            output-apk/EGPlayer.apk
           prerelease: false
