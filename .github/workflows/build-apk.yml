@@ -29,25 +29,206 @@ jobs:
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      - name: Normalize Project Directory Structure
+      - name: Normalize & Verify Gradle Project Structure
+        shell: bash
         run: |
-          if [ ! -f "settings.gradle.kts" ]; then
-            for dir in EGPlayer LarkLiquidGlassPlayer */; do
-              if [ -f "${dir}/settings.gradle.kts" ]; then
-                echo "Moving project files from ${dir} to repository root..."
-                shopt -s dotglob
-                mv "${dir}"/* .
-                rmdir "${dir}" || true
-                break
-              fi
-            done
-          fi
+          set -e
+          echo "=== Inspecting repository layout ==="
           ls -la
 
-      - name: Setup Gradle 8.10.2
+          # 1. If a ZIP archive was uploaded to the repository, extract it automatically
+          if [ ! -f "settings.gradle.kts" ] && [ ! -f "settings.gradle" ]; then
+            ZIP_FILE=$(find . -maxdepth 2 -name "*.zip" | head -n 1 || true)
+            if [ -n "$ZIP_FILE" ]; then
+              echo "Found archive $ZIP_FILE, extracting..."
+              unzip -o -q "$ZIP_FILE"
+            fi
+          fi
+
+          # 2. If settings.gradle.kts is inside a nested subfolder, move all project files to root
+          if [ ! -f "settings.gradle.kts" ] && [ ! -f "settings.gradle" ]; then
+            FOUND_SETTINGS=$(find . -maxdepth 4 \( -name "settings.gradle.kts" -o -name "settings.gradle" \) | head -n 1 || true)
+            if [ -n "$FOUND_SETTINGS" ]; then
+              PROJECT_DIR=$(dirname "$FOUND_SETTINGS")
+              echo "Moving project from $PROJECT_DIR to repository root..."
+              shopt -s dotglob
+              cp -rn "$PROJECT_DIR"/* . || true
+            fi
+          fi
+
+          # 3. If AndroidManifest.xml exists inside a nested folder without app/, normalize into app/src/main
+          if [ ! -d "app/src/main" ]; then
+            FOUND_MANIFEST=$(find . -maxdepth 5 -path "*/src/main/AndroidManifest.xml" | head -n 1 || true)
+            if [ -n "$FOUND_MANIFEST" ]; then
+              SRC_DIR=$(dirname "$(dirname "$FOUND_MANIFEST")")
+              APP_DIR=$(dirname "$SRC_DIR")
+              if [ "$APP_DIR" != "./app" ] && [ "$APP_DIR" != "app" ]; then
+                mkdir -p app
+                cp -rn "$APP_DIR"/* app/ || true
+              fi
+            fi
+          fi
+
+          # 4. Auto-create settings.gradle.kts if missing from repository root
+          if [ ! -f "settings.gradle.kts" ] && [ ! -f "settings.gradle" ]; then
+            cat << 'EOF' > settings.gradle.kts
+          pluginManagement {
+              repositories {
+                  google {
+                      content {
+                          includeGroupByRegex("com\\.android.*")
+                          includeGroupByRegex("com\\.google.*")
+                          includeGroupByRegex("androidx.*")
+                      }
+                  }
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+                  maven { url = uri("https://jitpack.io") }
+              }
+          }
+
+          rootProject.name = "EGPlayer"
+          include(":app")
+          EOF
+          fi
+
+          # 5. Auto-create root build.gradle.kts if missing
+          if [ ! -f "build.gradle.kts" ] && [ ! -f "build.gradle" ]; then
+            cat << 'EOF' > build.gradle.kts
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+              id("org.jetbrains.kotlin.android") version "2.1.0" apply false
+              id("org.jetbrains.kotlin.plugin.compose") version "2.1.0" apply false
+          }
+          EOF
+          fi
+
+          # 6. Auto-create gradle.properties if missing
+          if [ ! -f "gradle.properties" ]; then
+            cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
+          org.gradle.parallel=true
+          org.gradle.caching=true
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          kotlin.code.style=official
+          EOF
+          fi
+
+          # 7. Auto-create app/build.gradle.kts if missing
+          mkdir -p app
+          if [ ! -f "app/build.gradle.kts" ] && [ ! -f "app/build.gradle" ]; then
+            cat << 'EOF' > app/build.gradle.kts
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+              id("org.jetbrains.kotlin.plugin.compose")
+          }
+
+          android {
+              namespace = "com.larkliquid.player"
+              compileSdk = 35
+
+              defaultConfig {
+                  applicationId = "com.larkliquid.player"
+                  minSdk = 26
+                  targetSdk = 35
+                  versionCode = 5
+                  versionName = "5.0.0-EGPlayer-2026"
+
+                  vectorDrawables {
+                      useSupportLibrary = true
+                  }
+
+                  ndk {
+                      abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      isShrinkResources = false
+                      signingConfig = signingConfigs.getByName("debug")
+                  }
+                  debug {
+                      applicationIdSuffix = ".debug"
+                      isDebuggable = true
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+                  freeCompilerArgs += listOf(
+                      "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+                      "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi"
+                  )
+              }
+
+              buildFeatures {
+                  compose = true
+                  buildConfig = true
+              }
+
+              packaging {
+                  resources {
+                      excludes += "/META-INF/{AL2.0,LGPL2.1}"
+                  }
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.15.0")
+              implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+              implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+              implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+              implementation("androidx.activity:activity-compose:1.9.3")
+
+              val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
+              implementation(composeBom)
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.ui:ui-graphics")
+              implementation("androidx.compose.ui:ui-tooling-preview")
+              implementation("androidx.compose.ui:ui-util")
+              implementation("androidx.compose.foundation:foundation")
+              implementation("androidx.compose.material3:material3")
+              implementation("androidx.compose.material:material-icons-extended")
+
+              val media3Version = "1.5.1"
+              implementation("androidx.media3:media3-exoplayer:$media3Version")
+              implementation("androidx.media3:media3-exoplayer-dash:$media3Version")
+              implementation("androidx.media3:media3-exoplayer-hls:$media3Version")
+              implementation("androidx.media3:media3-ui:$media3Version")
+              implementation("androidx.media3:media3-session:$media3Version")
+              implementation("androidx.media3:media3-common:$media3Version")
+
+              implementation("io.coil-kt:coil-compose:2.7.0")
+              implementation("io.coil-kt:coil-video:2.7.0")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+          }
+          EOF
+          fi
+
+          ls -la
+          ls -la app/
+
+      - name: Setup Gradle 8.11
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.10.2'
+          gradle-version: '8.11'
           cache-read-only: false
 
       - name: Build Signed Store Release APK (Single Unified APK)
