@@ -14,16 +14,8 @@ import com.kyant.backdrop.CombinedBackdrop
 import com.kyant.backdrop.LayerBackdrop
 
 @Composable
-fun rememberLayerBackdrop(): LayerBackdrop {
-    val graphicsLayer = rememberGraphicsLayer()
-    return remember(graphicsLayer) {
-        LayerBackdrop(graphicsLayer = graphicsLayer, onDrawBlock = null)
-    }
-}
-
-@Composable
 fun rememberLayerBackdrop(
-    onDraw: ContentDrawScope.() -> Unit
+    onDraw: (ContentDrawScope.() -> Unit)? = null
 ): LayerBackdrop {
     val graphicsLayer = rememberGraphicsLayer()
     return remember(graphicsLayer, onDraw) {
@@ -41,21 +33,45 @@ fun rememberCombinedBackdrop(
     }
 }
 
+@Composable
+fun rememberCombinedBackdrop(
+    vararg backdrops: Backdrop
+): Backdrop {
+    return remember(*backdrops) {
+        CombinedBackdrop(backdrops.toList())
+    }
+}
+
 fun Modifier.layerBackdrop(backdrop: LayerBackdrop): Modifier {
     return this
         .onGloballyPositioned { coords ->
-            backdrop.rootOffset = coords.positionInRoot()
+            if (coords.isAttached) {
+                backdrop.layerCoordinates = coords
+                backdrop.rootOffset = coords.positionInRoot()
+            }
         }
         .drawWithContent {
-            val outerScope: ContentDrawScope = this
-            backdrop.graphicsLayer.record {
-                val customBlock = backdrop.onDrawBlock
-                if (customBlock != null) {
-                    customBlock.invoke(outerScope)
-                } else {
-                    outerScope.drawContent()
+            if (!backdrop.isRecording) {
+                backdrop.isRecording = true
+                try {
+                    runCatching {
+                        backdrop.graphicsLayer.record {
+                            val customBlock = backdrop.onDrawBlock
+                            if (customBlock != null) {
+                                customBlock.invoke(this@drawWithContent)
+                            } else {
+                                this@drawWithContent.drawContent()
+                            }
+                        }
+                    }
+                } finally {
+                    backdrop.isRecording = false
                 }
             }
-            drawLayer(backdrop.graphicsLayer)
+            runCatching {
+                drawLayer(backdrop.graphicsLayer)
+            }.onFailure {
+                drawContent()
+            }
         }
 }
