@@ -4,10 +4,10 @@ import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.os.Build
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
@@ -33,21 +33,15 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.dp
 import kotlin.math.min
 
-/**
- * Hardware-Accelerated Liquid Glass Backdrop Engine (`com.kyant.backdrop`).
- * Supports single and combined multi-layer backdrops (`LayerBackdrop` + `CombinedBackdrop`),
- * AGSL SDF lens refraction with chromatic dispersion on Android 13+ (API 33+),
- * RenderEffect blur + vibrancy on Android 12+ (API 31+), and universal hardware fallback on all processors.
- */
 @Stable
 interface Backdrop {
     val isCoordinatesDependent: Boolean
         get() = true
 
-    fun DrawScope.drawBackdrop(
+    fun drawBackdropLayer(
+        scope: DrawScope,
         density: androidx.compose.ui.unit.Density,
         coordinates: Offset
     )
@@ -61,13 +55,14 @@ class LayerBackdrop internal constructor(
     var rootOffset: Offset = Offset.Zero
         internal set
 
-    override fun DrawScope.drawBackdrop(
+    override fun drawBackdropLayer(
+        scope: DrawScope,
         density: androidx.compose.ui.unit.Density,
         coordinates: Offset
     ) {
         val dx = rootOffset.x - coordinates.x
         val dy = rootOffset.y - coordinates.y
-        withTransform({
+        scope.withTransform({
             translate(left = dx, top = dy)
         }) {
             drawLayer(graphicsLayer)
@@ -82,19 +77,22 @@ internal class CombinedBackdrop(
     override val isCoordinatesDependent: Boolean
         get() = backdrops.any { it.isCoordinatesDependent }
 
-    override fun DrawScope.drawBackdrop(
+    override fun drawBackdropLayer(
+        scope: DrawScope,
         density: androidx.compose.ui.unit.Density,
         coordinates: Offset
     ) {
         for (i in backdrops.indices) {
-            with(backdrops[i]) {
-                drawBackdrop(density, coordinates)
-            }
+            backdrops[i].drawBackdropLayer(scope, density, coordinates)
         }
     }
 }
 
 internal class OffsetHolder(var value: Offset = Offset.Zero)
+
+private val DefaultShapeProvider: () -> Shape = { CircleShape }
+private val DefaultHighlightProvider: () -> com.kyant.backdrop.highlight.Highlight? = { com.kyant.backdrop.highlight.Highlight.Default }
+private val DefaultShadowProvider: () -> com.kyant.backdrop.shadow.Shadow? = { com.kyant.backdrop.shadow.Shadow.Default }
 
 private const val LIQUID_GLASS_LENS_AGSL = """
     uniform shader content;
@@ -184,20 +182,19 @@ class BackdropEffectScope internal constructor(
     }
 }
 
-@Composable
 fun Modifier.drawBackdrop(
     backdrop: Backdrop,
-    shape: () -> Shape = { CircleShape },
+    shape: () -> Shape = DefaultShapeProvider,
     effects: (BackdropEffectScope.() -> Unit)? = null,
-    highlight: (() -> com.kyant.backdrop.highlight.Highlight?)? = { com.kyant.backdrop.highlight.Highlight.Default },
-    shadow: (() -> com.kyant.backdrop.shadow.Shadow?)? = { com.kyant.backdrop.shadow.Shadow.Default },
+    highlight: (() -> com.kyant.backdrop.highlight.Highlight?)? = DefaultHighlightProvider,
+    shadow: (() -> com.kyant.backdrop.shadow.Shadow?)? = DefaultShadowProvider,
     innerShadow: (() -> com.kyant.backdrop.shadow.InnerShadow?)? = null,
     exportedBackdrop: LayerBackdrop? = null,
     layerBlock: (GraphicsLayerScope.() -> Unit)? = null,
     onDrawBackdrop: (DrawScope.(drawBackdrop: DrawScope.() -> Unit) -> Unit)? = null,
     onDrawSurface: (DrawScope.() -> Unit)? = null,
     onDrawFront: (DrawScope.() -> Unit)? = null
-): Modifier {
+): Modifier = this.composed {
     val foregroundLayer = rememberGraphicsLayer()
     val offsetHolder = remember { OffsetHolder() }
     val resolvedShape = shape()
@@ -207,7 +204,7 @@ fun Modifier.drawBackdrop(
         } else null
     }
 
-    return this
+    Modifier
         .onGloballyPositioned { coords ->
             offsetHolder.value = coords.positionInRoot()
         }
@@ -231,6 +228,7 @@ fun Modifier.drawBackdrop(
             }
 
             onDrawWithContent {
+                val outerDensity: androidx.compose.ui.unit.Density = this
                 if (size.width > 1f && size.height > 1f) {
                     val sh = shadow?.invoke()
                     if (sh != null && sh.alpha > 0.01f) {
@@ -244,16 +242,7 @@ fun Modifier.drawBackdrop(
 
                     foregroundLayer.renderEffect = composeRenderEffect
                     foregroundLayer.record {
-                        val drawBg: DrawScope.() -> Unit = {
-                            with(backdrop) {
-                                drawBackdrop(this@onDrawWithContent, offsetHolder.value)
-                            }
-                        }
-                        if (onDrawBackdrop != null) {
-                            onDrawBackdrop(drawBg)
-                        } else {
-                            drawBg()
-                        }
+                        backdrop.drawBackdropLayer(this, outerDensity, offsetHolder.value)
                     }
 
                     clipPath(clipPath) {
@@ -309,10 +298,9 @@ fun Modifier.drawBackdrop(
         .clip(resolvedShape)
 }
 
-@Composable
 fun Modifier.drawPlainBackdrop(
     backdrop: Backdrop,
-    shape: () -> Shape = { CircleShape },
+    shape: () -> Shape = DefaultShapeProvider,
     effects: (BackdropEffectScope.() -> Unit)? = null,
     exportedBackdrop: LayerBackdrop? = null,
     layerBlock: (GraphicsLayerScope.() -> Unit)? = null,
