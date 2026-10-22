@@ -13,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -20,8 +21,6 @@ import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.fastCoerceAtMost
-import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
@@ -39,12 +38,6 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.tanh
 
-/**
- * iOS 26 & AndroidLiquidGlass Bridge (`LiquidGlassEngine.kt`).
- * Built directly on top of `com.kyant.backdrop.drawBackdrop` and `InteractiveHighlight`
- * from `AndroidLiquidGlass-kmp` for authentic real-time background refraction, blur, and vibrancy.
- */
-@Composable
 fun Modifier.ios26LiquidGlass(
     backdrop: Backdrop,
     shape: Shape = Capsule(),
@@ -56,13 +49,13 @@ fun Modifier.ios26LiquidGlass(
     depthEffect: Boolean = false,
     surfaceTint: Color = Color.Black.copy(alpha = 0.24f),
     accentTint: Color = Color.Unspecified
-): Modifier {
+): Modifier = this.composed {
     val animationScope = rememberCoroutineScope()
     val interactiveHighlight = remember(animationScope) {
         InteractiveHighlight(animationScope = animationScope)
     }
 
-    return this
+    Modifier
         .drawBackdrop(
             backdrop = backdrop,
             shape = { shape },
@@ -78,17 +71,17 @@ fun Modifier.ios26LiquidGlass(
             },
             highlight = {
                 val p = interactiveHighlight.pressProgress
-                Highlight.Default.copy(alpha = (0.58f + 0.32f * p).fastCoerceIn(0f, 1f))
+                Highlight.Default.copy(alpha = (0.58f + 0.32f * p).coerceIn(0f, 1f))
             },
             shadow = {
                 val p = interactiveHighlight.pressProgress
-                Shadow(alpha = (0.22f + 0.28f * p).fastCoerceIn(0f, 1f))
+                Shadow(alpha = (0.22f + 0.28f * p).coerceIn(0f, 1f))
             },
             innerShadow = {
                 val p = interactiveHighlight.pressProgress
                 InnerShadow(
                     radius = 6.dp,
-                    alpha = (0.28f + 0.30f * p).fastCoerceIn(0f, 1f)
+                    alpha = (0.28f + 0.30f * p).coerceIn(0f, 1f)
                 )
             },
             layerBlock = if (isInteractive) {
@@ -109,11 +102,11 @@ fun Modifier.ios26LiquidGlass(
                     scaleX =
                         scale +
                                 maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension.coerceAtLeast(1f)) *
-                                (width / height).fastCoerceAtMost(1f)
+                                (width / height).coerceAtMost(1f)
                     scaleY =
                         scale +
                                 maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension.coerceAtLeast(1f)) *
-                                (height / width).fastCoerceAtMost(1f)
+                                (height / width).coerceAtMost(1f)
                 }
             } else null,
             onDrawSurface = {
