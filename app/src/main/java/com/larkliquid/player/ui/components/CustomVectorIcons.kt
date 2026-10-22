@@ -1,5 +1,7 @@
 package com.larkliquid.player.ui.components
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -17,7 +19,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -37,15 +41,7 @@ import androidx.compose.ui.unit.sp
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.sin
-
-/**
- * Pure Vector / Canvas Animated Player Icons (`CustomVectorIcons.kt`).
- * Strictly ZERO emojis anywhere:
- * - `AnimatedFastForward2xIndicator`: Real animated flowing vector chevrons for 2.0x speed hold.
- * - `IosSkip10sCanvasIcon`: Authentic iOS circular skip icon with rotating arc and crisp "10" label.
- * - `IosPlayPauseMorphIcon`: Smoothly morphing Play triangle / Pause bars.
- * - `IosPrevNextTrackIcon`: Crisp iOS Previous (`|<<`) and Next (`>>|`) vector icons.
- */
+import kotlinx.coroutines.launch
 
 @Composable
 fun AnimatedFastForward2xIndicator(
@@ -111,33 +107,68 @@ fun AnimatedFastForward2xIndicator(
 fun IosSkip10sCanvasIcon(
     seconds: Int = 10,
     isForward: Boolean,
+    animTrigger: Int = 0,
     iconSize: Dp = 36.dp
 ) {
+    val rotationAnim = remember { Animatable(0f) }
+    val scaleAnim = remember { Animatable(1f) }
+
+    LaunchedEffect(animTrigger) {
+        if (animTrigger > 0) {
+            launch {
+                rotationAnim.snapTo(0f)
+                rotationAnim.animateTo(
+                    targetValue = if (isForward) 360f else -360f,
+                    animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
+                )
+                rotationAnim.snapTo(0f)
+            }
+            launch {
+                scaleAnim.snapTo(0.82f)
+                scaleAnim.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(dampingRatio = 0.45f, stiffness = 420f)
+                )
+            }
+        }
+    }
+
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier.size(iconSize)
+        modifier = Modifier
+            .size(iconSize)
+            .graphicsLayer {
+                scaleX = scaleAnim.value
+                scaleY = scaleAnim.value
+            }
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    rotationZ = rotationAnim.value
+                }
+        ) {
             val strokePx = 2.3.dp.toPx()
             val arcPadding = 3.5.dp.toPx()
             val arcSize = Size(size.width - arcPadding * 2, size.height - arcPadding * 2)
+            val topCenterX = size.width * 0.50f
+            val topCenterY = arcPadding
 
             if (isForward) {
                 drawArc(
                     color = Color.White,
-                    startAngle = -78f,
-                    sweepAngle = 300f,
+                    startAngle = -35f,
+                    sweepAngle = 305f,
                     useCenter = false,
                     topLeft = Offset(arcPadding, arcPadding),
                     size = arcSize,
                     style = Stroke(width = strokePx, cap = StrokeCap.Round)
                 )
-                val tipX = size.width * 0.63f
-                val tipY = arcPadding + 0.5.dp.toPx()
                 val arrowPath = Path().apply {
-                    moveTo(tipX - 5.dp.toPx(), tipY - 3.8.dp.toPx())
-                    lineTo(tipX + 2.2.dp.toPx(), tipY)
-                    lineTo(tipX - 3.8.dp.toPx(), tipY + 4.8.dp.toPx())
+                    moveTo(topCenterX - 3.5.dp.toPx(), topCenterY - 4.2.dp.toPx())
+                    lineTo(topCenterX + 3.2.dp.toPx(), topCenterY)
+                    lineTo(topCenterX - 3.5.dp.toPx(), topCenterY + 4.2.dp.toPx())
                 }
                 drawPath(
                     path = arrowPath,
@@ -147,19 +178,17 @@ fun IosSkip10sCanvasIcon(
             } else {
                 drawArc(
                     color = Color.White,
-                    startAngle = -102f,
-                    sweepAngle = -300f,
+                    startAngle = -145f,
+                    sweepAngle = -305f,
                     useCenter = false,
                     topLeft = Offset(arcPadding, arcPadding),
                     size = arcSize,
                     style = Stroke(width = strokePx, cap = StrokeCap.Round)
                 )
-                val tipX = size.width * 0.37f
-                val tipY = arcPadding + 0.5.dp.toPx()
                 val arrowPath = Path().apply {
-                    moveTo(tipX + 5.dp.toPx(), tipY - 3.8.dp.toPx())
-                    lineTo(tipX - 2.2.dp.toPx(), tipY)
-                    lineTo(tipX + 3.8.dp.toPx(), tipY + 4.8.dp.toPx())
+                    moveTo(topCenterX + 3.5.dp.toPx(), topCenterY - 4.2.dp.toPx())
+                    lineTo(topCenterX - 3.2.dp.toPx(), topCenterY)
+                    lineTo(topCenterX + 3.5.dp.toPx(), topCenterY + 4.2.dp.toPx())
                 }
                 drawPath(
                     path = arrowPath,
@@ -186,8 +215,8 @@ fun IosPlayPauseMorphIcon(
     iconSize: Dp = 32.dp
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 1.06f,
-        animationSpec = spring(dampingRatio = 0.65f, stiffness = 420f),
+        targetValue = if (isPlaying) 1f else 1.08f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 420f),
         label = "PlayPauseMorphScale"
     )
 
