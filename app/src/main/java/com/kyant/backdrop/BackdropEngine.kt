@@ -4,10 +4,10 @@ import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.os.Build
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
@@ -15,10 +15,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RenderEffect as ComposeRenderEffect
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -29,10 +32,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import kotlin.math.min
 
 @Stable
@@ -40,11 +46,59 @@ interface Backdrop {
     val isCoordinatesDependent: Boolean
         get() = true
 
-    fun drawBackdropLayer(
-        scope: DrawScope,
-        density: androidx.compose.ui.unit.Density,
+    fun DrawScope.drawBackdrop(
+        density: Density,
         coordinates: Offset
     )
+
+    fun DrawScope.drawBackdropLayer(
+        density: Density,
+        coordinates: Offset,
+        layerProbe: LayerTransformProbe?
+    ) {
+        drawBackdrop(
+            density = density,
+            coordinates = Offset(
+                x = coordinates.x + (layerProbe?.translationX ?: 0f),
+                y = coordinates.y + (layerProbe?.translationY ?: 0f)
+            )
+        )
+    }
+}
+
+class LayerTransformProbe : GraphicsLayerScope {
+    override var scaleX: Float = 1f
+    override var scaleY: Float = 1f
+    override var alpha: Float = 1f
+    override var translationX: Float = 0f
+    override var translationY: Float = 0f
+    override var shadowElevation: Float = 0f
+    override var rotationX: Float = 0f
+    override var rotationY: Float = 0f
+    override var rotationZ: Float = 0f
+    override var cameraDistance: Float = 8f
+    override var transformOrigin: TransformOrigin = TransformOrigin.Center
+    override var shape: Shape = CircleShape
+    override var clip: Boolean = false
+    override var renderEffect: ComposeRenderEffect? = null
+    override var ambientShadowColor: Color = Color.Black
+    override var spotShadowColor: Color = Color.Black
+    override var compositingStrategy: CompositingStrategy = CompositingStrategy.Auto
+    override var size: Size = Size.Zero
+    override var density: Float = 1f
+    override var fontScale: Float = 1f
+
+    fun reset(currentSize: Size, currentDensity: Float, currentFontScale: Float) {
+        scaleX = 1f
+        scaleY = 1f
+        alpha = 1f
+        translationX = 0f
+        translationY = 0f
+        rotationZ = 0f
+        size = currentSize
+        density = currentDensity
+        fontScale = currentFontScale
+    }
 }
 
 @Stable
@@ -55,17 +109,38 @@ class LayerBackdrop internal constructor(
     var rootOffset: Offset = Offset.Zero
         internal set
 
-    override fun drawBackdropLayer(
-        scope: DrawScope,
-        density: androidx.compose.ui.unit.Density,
+    var layerCoordinates: LayoutCoordinates? = null
+        internal set
+
+    @Volatile
+    var isRecording: Boolean = false
+        internal set
+
+    override fun DrawScope.drawBackdrop(
+        density: Density,
         coordinates: Offset
     ) {
-        val dx = rootOffset.x - coordinates.x
-        val dy = rootOffset.y - coordinates.y
-        scope.withTransform({
+        drawBackdropLayer(density, coordinates, null)
+    }
+
+    override fun DrawScope.drawBackdropLayer(
+        density: Density,
+        coordinates: Offset,
+        layerProbe: LayerTransformProbe?
+    ) {
+        if (isRecording) return
+
+        val targetX = coordinates.x + (layerProbe?.translationX ?: 0f)
+        val targetY = coordinates.y + (layerProbe?.translationY ?: 0f)
+        val dx = rootOffset.x - targetX
+        val dy = rootOffset.y - targetY
+
+        withTransform({
             translate(left = dx, top = dy)
         }) {
-            drawLayer(graphicsLayer)
+            runCatching {
+                drawLayer(graphicsLayer)
+            }
         }
     }
 }
@@ -77,22 +152,34 @@ internal class CombinedBackdrop(
     override val isCoordinatesDependent: Boolean
         get() = backdrops.any { it.isCoordinatesDependent }
 
-    override fun drawBackdropLayer(
-        scope: DrawScope,
-        density: androidx.compose.ui.unit.Density,
+    override fun DrawScope.drawBackdrop(
+        density: Density,
         coordinates: Offset
     ) {
         for (i in backdrops.indices) {
-            backdrops[i].drawBackdropLayer(scope, density, coordinates)
+            with(backdrops[i]) {
+                drawBackdrop(density, coordinates)
+            }
+        }
+    }
+
+    override fun DrawScope.drawBackdropLayer(
+        density: Density,
+        coordinates: Offset,
+        layerProbe: LayerTransformProbe?
+    ) {
+        for (i in backdrops.indices) {
+            with(backdrops[i]) {
+                drawBackdropLayer(density, coordinates, layerProbe)
+            }
         }
     }
 }
 
-internal class OffsetHolder(var value: Offset = Offset.Zero)
-
-private val DefaultShapeProvider: () -> Shape = { CircleShape }
-private val DefaultHighlightProvider: () -> com.kyant.backdrop.highlight.Highlight? = { com.kyant.backdrop.highlight.Highlight.Default }
-private val DefaultShadowProvider: () -> com.kyant.backdrop.shadow.Shadow? = { com.kyant.backdrop.shadow.Shadow.Default }
+internal class OffsetHolder(
+    var value: Offset = Offset.Zero,
+    var coordinates: LayoutCoordinates? = null
+)
 
 private const val LIQUID_GLASS_LENS_AGSL = """
     uniform shader content;
@@ -139,19 +226,55 @@ private const val LIQUID_GLASS_LENS_AGSL = """
         float4 maxGradRadius = float4(min(halfSize.x, halfSize.y));
         float4 gradRadius = min(cornerRadii * 1.5, maxGradRadius);
         float2 normal = gradSdRoundedBox(centeredCoord, halfSize, gradRadius);
-        float refractedDistance = circleMap(1.0 - (-sd / safeHeight)) * refractionAmount;
-        float2 grad = normalize(normal + depthEffect * normalize(centeredCoord));
+        float refractedDistance = circleMap(1.0 - (-sd / safeHeight)) * (-refractionAmount);
+        float2 radialDir = (length(centeredCoord) > 1e-3) ? normalize(centeredCoord) : float2(0.0);
+        float2 grad = normalize(normal + depthEffect * radialDir);
         float2 displacement = refractedDistance * grad;
-        if (chromaticAberration > 0.5) {
-            float2 dR = displacement * 1.16;
-            float2 dG = displacement * 1.00;
-            float2 dB = displacement * 0.84;
-            half4 cR = content.eval(clamp(coord + dR, float2(0.0), max(size - 1.0, float2(1.0))));
-            half4 cG = content.eval(clamp(coord + dG, float2(0.0), max(size - 1.0, float2(1.0))));
-            half4 cB = content.eval(clamp(coord + dB, float2(0.0), max(size - 1.0, float2(1.0))));
-            return half4(cR.r, cG.g, cB.b, cG.a);
+        float2 safeMax = max(size - 1.0, float2(1.0));
+
+        if (chromaticAberration > 0.01) {
+            float dispersionIntensity = chromaticAberration * (
+                (centeredCoord.x * centeredCoord.y) / max(halfSize.x * halfSize.y, 1.0)
+            );
+            float2 dispersedCoord = displacement * dispersionIntensity;
+
+            half4 color = half4(0.0);
+
+            half4 red = content.eval(clamp(coord + displacement + dispersedCoord * 1.2, float2(0.0), safeMax));
+            color.r += red.r / 3.5;
+            color.a += red.a / 7.0;
+
+            half4 orange = content.eval(clamp(coord + displacement + dispersedCoord * 0.8, float2(0.0), safeMax));
+            color.r += orange.r / 3.5;
+            color.g += orange.g / 7.0;
+            color.a += orange.a / 7.0;
+
+            half4 yellow = content.eval(clamp(coord + displacement + dispersedCoord * 0.4, float2(0.0), safeMax));
+            color.r += yellow.r / 3.5;
+            color.g += yellow.g / 3.5;
+            color.a += yellow.a / 7.0;
+
+            half4 green = content.eval(clamp(coord + displacement, float2(0.0), safeMax));
+            color.g += green.g / 3.5;
+            color.a += green.a / 7.0;
+
+            half4 cyan = content.eval(clamp(coord + displacement - dispersedCoord * 0.4, float2(0.0), safeMax));
+            color.g += cyan.g / 3.5;
+            color.b += cyan.b / 3.0;
+            color.a += cyan.a / 7.0;
+
+            half4 blue = content.eval(clamp(coord + displacement - dispersedCoord * 0.8, float2(0.0), safeMax));
+            color.b += blue.b / 3.0;
+            color.a += blue.a / 7.0;
+
+            half4 purple = content.eval(clamp(coord + displacement - dispersedCoord * 1.2, float2(0.0), safeMax));
+            color.r += purple.r / 7.0;
+            color.b += purple.b / 3.0;
+            color.a += purple.a / 7.0;
+
+            return color;
         } else {
-            float2 sampleCoord = clamp(coord + displacement, float2(0.0), max(size - 1.0, float2(1.0)));
+            float2 sampleCoord = clamp(coord + displacement, float2(0.0), safeMax);
             return content.eval(sampleCoord);
         }
     }
@@ -182,21 +305,23 @@ class BackdropEffectScope internal constructor(
     }
 }
 
+@Composable
 fun Modifier.drawBackdrop(
     backdrop: Backdrop,
-    shape: () -> Shape = DefaultShapeProvider,
+    shape: () -> Shape = { CircleShape },
     effects: (BackdropEffectScope.() -> Unit)? = null,
-    highlight: (() -> com.kyant.backdrop.highlight.Highlight?)? = DefaultHighlightProvider,
-    shadow: (() -> com.kyant.backdrop.shadow.Shadow?)? = DefaultShadowProvider,
+    highlight: (() -> com.kyant.backdrop.highlight.Highlight?)? = { com.kyant.backdrop.highlight.Highlight.Default },
+    shadow: (() -> com.kyant.backdrop.shadow.Shadow?)? = { com.kyant.backdrop.shadow.Shadow.Default },
     innerShadow: (() -> com.kyant.backdrop.shadow.InnerShadow?)? = null,
     exportedBackdrop: LayerBackdrop? = null,
     layerBlock: (GraphicsLayerScope.() -> Unit)? = null,
     onDrawBackdrop: (DrawScope.(drawBackdrop: DrawScope.() -> Unit) -> Unit)? = null,
     onDrawSurface: (DrawScope.() -> Unit)? = null,
     onDrawFront: (DrawScope.() -> Unit)? = null
-): Modifier = this.composed {
+): Modifier {
     val foregroundLayer = rememberGraphicsLayer()
     val offsetHolder = remember { OffsetHolder() }
+    val layerProbe = remember { LayerTransformProbe() }
     val resolvedShape = shape()
     val rememberedLensShader = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -204,20 +329,16 @@ fun Modifier.drawBackdrop(
         } else null
     }
 
-    Modifier
+    return this
         .onGloballyPositioned { coords ->
-            offsetHolder.value = coords.positionInRoot()
+            if (coords.isAttached) {
+                offsetHolder.coordinates = coords
+                offsetHolder.value = coords.positionInRoot()
+            }
         }
         .then(if (layerBlock != null) Modifier.graphicsLayer(layerBlock) else Modifier)
         .drawWithCache {
             val densityPx = density
-            val effectScope = BackdropEffectScope(size, layoutDirection, densityPx, rememberedLensShader)
-            effects?.invoke(effectScope)
-            val androidRenderEffect = effectScope.buildCombinedRenderEffect()
-            val composeRenderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && androidRenderEffect != null) {
-                androidRenderEffect.asComposeRenderEffect()
-            } else null
-
             val outline = resolvedShape.createOutline(size, layoutDirection, this)
             val clipPath = Path().apply {
                 when (outline) {
@@ -228,8 +349,17 @@ fun Modifier.drawBackdrop(
             }
 
             onDrawWithContent {
-                val outerDensity: androidx.compose.ui.unit.Density = this
                 if (size.width > 1f && size.height > 1f) {
+                    layerProbe.reset(size, densityPx, fontScale)
+                    layerBlock?.invoke(layerProbe)
+
+                    val effectScope = BackdropEffectScope(size, layoutDirection, densityPx, rememberedLensShader)
+                    effects?.invoke(effectScope)
+                    val androidRenderEffect = effectScope.buildCombinedRenderEffect()
+                    val composeRenderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && androidRenderEffect != null) {
+                        androidRenderEffect.asComposeRenderEffect()
+                    } else null
+
                     val sh = shadow?.invoke()
                     if (sh != null && sh.alpha > 0.01f) {
                         drawRoundRect(
@@ -240,13 +370,33 @@ fun Modifier.drawBackdrop(
                         )
                     }
 
+                    val liveCoords = offsetHolder.coordinates
+                    if (liveCoords != null && liveCoords.isAttached) {
+                        offsetHolder.value = liveCoords.positionInRoot()
+                    }
+
                     foregroundLayer.renderEffect = composeRenderEffect
-                    foregroundLayer.record {
-                        backdrop.drawBackdropLayer(this, outerDensity, offsetHolder.value)
+                    runCatching {
+                        foregroundLayer.record {
+                            val drawBg: DrawScope.() -> Unit = {
+                                with(backdrop) {
+                                    drawBackdropLayer(
+                                        density = this@onDrawWithContent,
+                                        coordinates = offsetHolder.value,
+                                        layerProbe = if (layerBlock != null) layerProbe else null
+                                    )
+                                }
+                            }
+                            if (onDrawBackdrop != null) {
+                                onDrawBackdrop(drawBg)
+                            } else {
+                                drawBg()
+                            }
+                        }
                     }
 
                     clipPath(clipPath) {
-                        drawLayer(foregroundLayer)
+                        runCatching { drawLayer(foregroundLayer) }
                         onDrawSurface?.invoke(this)
 
                         val inSh = innerShadow?.invoke()
@@ -254,9 +404,9 @@ fun Modifier.drawBackdrop(
                             drawRect(
                                 brush = Brush.verticalGradient(
                                     colors = listOf(
-                                        Color.White.copy(alpha = 0.24f * inSh.alpha),
+                                        Color.White.copy(alpha = 0.28f * inSh.alpha),
                                         Color.Transparent,
-                                        Color.Black.copy(alpha = 0.16f * inSh.alpha)
+                                        Color.Black.copy(alpha = 0.14f * inSh.alpha)
                                     )
                                 )
                             )
@@ -268,9 +418,9 @@ fun Modifier.drawBackdrop(
                             drawRoundRect(
                                 brush = Brush.linearGradient(
                                     colors = listOf(
-                                        Color.White.copy(alpha = 0.55f * hl.alpha),
-                                        Color.White.copy(alpha = 0.12f * hl.alpha),
-                                        Color.White.copy(alpha = 0.36f * hl.alpha)
+                                        Color.White.copy(alpha = 0.68f * hl.alpha),
+                                        Color.White.copy(alpha = 0.14f * hl.alpha),
+                                        Color.White.copy(alpha = 0.45f * hl.alpha)
                                     ),
                                     start = Offset.Zero,
                                     end = Offset(size.width, size.height)
@@ -283,11 +433,21 @@ fun Modifier.drawBackdrop(
                         onDrawFront?.invoke(this)
                     }
 
-                    if (exportedBackdrop != null) {
-                        exportedBackdrop.rootOffset = offsetHolder.value
-                        exportedBackdrop.graphicsLayer.record {
-                            drawLayer(foregroundLayer)
-                            onDrawSurface?.invoke(this)
+                    if (exportedBackdrop != null && !exportedBackdrop.isRecording) {
+                        exportedBackdrop.rootOffset = Offset(
+                            x = offsetHolder.value.x + layerProbe.translationX,
+                            y = offsetHolder.value.y + layerProbe.translationY
+                        )
+                        exportedBackdrop.isRecording = true
+                        try {
+                            runCatching {
+                                exportedBackdrop.graphicsLayer.record {
+                                    drawLayer(foregroundLayer)
+                                    onDrawSurface?.invoke(this)
+                                }
+                            }
+                        } finally {
+                            exportedBackdrop.isRecording = false
                         }
                     }
                 }
@@ -298,9 +458,10 @@ fun Modifier.drawBackdrop(
         .clip(resolvedShape)
 }
 
+@Composable
 fun Modifier.drawPlainBackdrop(
     backdrop: Backdrop,
-    shape: () -> Shape = DefaultShapeProvider,
+    shape: () -> Shape = { CircleShape },
     effects: (BackdropEffectScope.() -> Unit)? = null,
     exportedBackdrop: LayerBackdrop? = null,
     layerBlock: (GraphicsLayerScope.() -> Unit)? = null,
@@ -339,7 +500,7 @@ internal fun createCachedLensRenderEffect(
         shader.setFloatUniform("cornerRadii", r, r, r, r)
         shader.setFloatUniform("refractionHeight", refractionHeight.coerceAtLeast(1f))
         shader.setFloatUniform("refractionAmount", refractionAmount)
-        shader.setFloatUniform("depthEffect", if (depthEffect) 1f else 0f)
+        shader.setFloatUniform("depthEffect", if (depthEffect) 0.35f else 0f)
         shader.setFloatUniform("chromaticAberration", if (chromaticAberration) 1f else 0f)
         RenderEffect.createRuntimeShaderEffect(shader, "content")
     }.getOrNull()
